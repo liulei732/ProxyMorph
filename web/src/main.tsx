@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { AlertCircle, Copy, KeyRound, Plus, RefreshCw, Server, ShieldCheck } from "lucide-react";
 import { api } from "./api";
+import { getInitialLanguage, languageStorageKey, languages, translations, type Language } from "./i18n";
 import "./styles.css";
 
 type Task = {
@@ -27,9 +28,16 @@ type PinnedNode = {
 function App() {
   const [loggedIn, setLoggedIn] = React.useState(false);
   const [tab, setTab] = React.useState("overview");
+  const [language, setLanguage] = React.useState<Language>(() => getInitialLanguage(localStorage.getItem(languageStorageKey)));
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [nodes, setNodes] = React.useState<PinnedNode[]>([]);
   const [error, setError] = React.useState("");
+  const t = translations[language];
+
+  function changeLanguage(nextLanguage: Language) {
+    setLanguage(nextLanguage);
+    localStorage.setItem(languageStorageKey, nextLanguage);
+  }
 
   async function refresh() {
     const [nextTasks, nextNodes] = await Promise.all([
@@ -49,7 +57,7 @@ function App() {
       setLoggedIn(true);
       await refresh();
     } catch {
-      setError("Login failed.");
+      setError(t.loginFailed);
     }
   }
 
@@ -74,17 +82,18 @@ function App() {
   if (!loggedIn) {
     return (
       <main className="login">
+        <LanguageSwitch language={language} onChange={changeLanguage} />
         <section className="identity">
           <div className="logo">PM</div>
           <div>
             <h1>ProxyMorph</h1>
-            <p>Convert Clash subscriptions, compose fixed nodes, ship Surge 6 output.</p>
+            <p>{t.productDescription}</p>
           </div>
         </section>
         <form className="panel login-panel" onSubmit={login}>
-          <label>Username<input name="username" defaultValue="admin" autoComplete="username" /></label>
-          <label>Password<input name="password" type="password" autoComplete="current-password" /></label>
-          <button><KeyRound size={17} /> Sign in</button>
+          <label>{t.username}<input name="username" defaultValue="admin" autoComplete="username" /></label>
+          <label>{t.password}<input name="password" type="password" autoComplete="current-password" /></label>
+          <button><KeyRound size={17} /> {t.signIn}</button>
           {error && <p className="error">{error}</p>}
         </form>
       </main>
@@ -99,56 +108,71 @@ function App() {
         <div className="identity small"><div className="logo">PM</div><strong>ProxyMorph</strong></div>
         <nav>
           {["overview", "tasks", "nodes", "preview", "settings"].map((item) => (
-            <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>
+            <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{t.tabs[item as keyof typeof t.tabs]}</button>
           ))}
         </nav>
       </aside>
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h2>{title(tab)}</h2>
-            <p>{subtitle(tab)}</p>
+            <h2>{t.tabs[tab as keyof typeof t.tabs]}</h2>
+            <p>{t.subtitles[tab as keyof typeof t.subtitles]}</p>
           </div>
-          <button onClick={refresh}><RefreshCw size={16} /> Refresh</button>
+          <div className="top-actions">
+            <LanguageSwitch language={language} onChange={changeLanguage} />
+            <button onClick={refresh}><RefreshCw size={16} /> {t.refresh}</button>
+          </div>
         </header>
 
         {tab === "overview" && (
           <section className="stack">
             <div className="metrics">
-              <Metric icon={<Server />} value={tasks.length} label="Tasks" />
-              <Metric icon={<ShieldCheck />} value={nodes.length} label="Pinned Nodes" />
-              <Metric icon={<AlertCircle />} value={errors.length} label="Errors" />
+              <Metric icon={<Server />} value={tasks.length} label={t.metrics.tasks} />
+              <Metric icon={<ShieldCheck />} value={nodes.length} label={t.metrics.pinnedNodes} />
+              <Metric icon={<AlertCircle />} value={errors.length} label={t.metrics.errors} />
             </div>
-            <TaskList tasks={tasks} />
+            <TaskList tasks={tasks} t={t} />
           </section>
         )}
 
         {tab === "tasks" && (
           <section className="stack">
             <form className="panel grid-form" onSubmit={createTask}>
-              <label>Name<input name="name" placeholder="Main subscription" /></label>
-              <label>Clash URL<input name="source_url" placeholder="https://example.com/clash.yaml" /></label>
-              <label>Refresh seconds<input name="refresh_interval_seconds" type="number" defaultValue="3600" /></label>
-              <button><Plus size={16} /> Create</button>
+              <label>{t.forms.name}<input name="name" placeholder={t.placeholders.taskName} /></label>
+              <label>{t.forms.clashURL}<input name="source_url" placeholder={t.placeholders.clashURL} /></label>
+              <label>{t.forms.refreshSeconds}<input name="refresh_interval_seconds" type="number" defaultValue="3600" /></label>
+              <button><Plus size={16} /> {t.forms.create}</button>
             </form>
-            <TaskList tasks={tasks} />
+            <TaskList tasks={tasks} t={t} />
           </section>
         )}
 
         {tab === "nodes" && (
           <section className="stack">
             <form className="panel" onSubmit={importNodes}>
-              <label>Proxy URIs<textarea name="text" rows={6} placeholder="vless://uuid@example.com:443?security=tls&sni=edge.example.com#Edge" /></label>
-              <button><Plus size={16} /> Import Nodes</button>
+              <label>{t.forms.proxyURIs}<textarea name="text" rows={6} placeholder={t.placeholders.proxyURIs} /></label>
+              <button><Plus size={16} /> {t.forms.importNodes}</button>
             </form>
-            <NodeList nodes={nodes} />
+            <NodeList nodes={nodes} t={t} />
           </section>
         )}
 
-        {tab === "preview" && <section className="panel"><h3>Conversion Preview</h3><pre>No preview loaded.</pre></section>}
-        {tab === "settings" && <section className="panel grid-form"><label>Cache Policy<input readOnly value="Refresh on request with last-good fallback" /></label><label>VLESS Helper<input readOnly value="sing-box bundled in Docker" /></label></section>}
+        {tab === "preview" && <section className="panel"><h3>{t.preview.title}</h3><pre>{t.preview.empty}</pre></section>}
+        {tab === "settings" && <section className="panel grid-form"><label>{t.settings.cachePolicy}<input readOnly value={t.settings.cachePolicyValue} /></label><label>{t.settings.vlessHelper}<input readOnly value={t.settings.vlessHelperValue} /></label></section>}
       </section>
     </main>
+  );
+}
+
+function LanguageSwitch({ language, onChange }: { language: Language; onChange: (language: Language) => void }) {
+  return (
+    <div className="language-switch" aria-label="Language">
+      {languages.map((option) => (
+        <button key={option.code} type="button" className={language === option.code ? "active" : ""} onClick={() => onChange(option.code)}>
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -162,10 +186,10 @@ function Metric({ icon, value, label }: { icon: React.ReactNode; value: number; 
   );
 }
 
-function TaskList({ tasks }: { tasks: Task[] }) {
+function TaskList({ tasks, t }: { tasks: Task[]; t: typeof translations[Language] }) {
   return (
     <section className="panel">
-      <h3>Conversion Tasks</h3>
+      <h3>{t.taskList.title}</h3>
       <div className="list">
         {tasks.length ? tasks.map((task) => (
           <div className="row" key={task.ID}>
@@ -173,22 +197,22 @@ function TaskList({ tasks }: { tasks: Task[] }) {
               <strong>{task.Name}</strong>
               <span>{task.SourceURL}</span>
             </div>
-            <span className="badge">{`${task.InputType} to ${task.OutputType}`}</span>
-            <span>{task.Enabled ? "Enabled" : "Disabled"}</span>
+            <span className="badge">{`${task.InputType} ${t.taskList.route} ${task.OutputType}`}</span>
+            <span>{task.Enabled ? t.taskList.enabled : t.taskList.disabled}</span>
             <button onClick={() => navigator.clipboard.writeText(`${location.origin}/sub/token-${task.ID}`)}>
-              <Copy size={15} /> Copy
+              <Copy size={15} /> {t.taskList.copy}
             </button>
           </div>
-        )) : <p className="muted">No conversion tasks yet.</p>}
+        )) : <p className="muted">{t.taskList.empty}</p>}
       </div>
     </section>
   );
 }
 
-function NodeList({ nodes }: { nodes: PinnedNode[] }) {
+function NodeList({ nodes, t }: { nodes: PinnedNode[]; t: typeof translations[Language] }) {
   return (
     <section className="panel">
-      <h3>Pinned Node Library</h3>
+      <h3>{t.nodeList.title}</h3>
       <div className="list">
         {nodes.length ? nodes.map((node) => (
           <div className="row" key={node.ID}>
@@ -197,21 +221,13 @@ function NodeList({ nodes }: { nodes: PinnedNode[] }) {
               <span>{`${node.Server}:${node.Port}`}</span>
             </div>
             <span className="badge">{node.Protocol}</span>
-            <span>{node.DefaultInclude ? "Default" : "Manual"}</span>
-            <span>{node.Enabled ? "Enabled" : "Disabled"}</span>
+            <span>{node.DefaultInclude ? t.nodeList.default : t.nodeList.manual}</span>
+            <span>{node.Enabled ? t.nodeList.enabled : t.nodeList.disabled}</span>
           </div>
-        )) : <p className="muted">No pinned nodes yet.</p>}
+        )) : <p className="muted">{t.nodeList.empty}</p>}
       </div>
     </section>
   );
-}
-
-function title(tab: string) {
-  return ({ overview: "Overview", tasks: "Tasks", nodes: "Pinned Nodes", preview: "Preview", settings: "Settings" } as Record<string, string>)[tab];
-}
-
-function subtitle(tab: string) {
-  return ({ overview: "Track conversion health.", tasks: "Manage Clash to Surge 6 outputs.", nodes: "Import fixed SS, Trojan, and VLESS nodes.", preview: "Inspect generated output.", settings: "Runtime and deployment details." } as Record<string, string>)[tab];
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
