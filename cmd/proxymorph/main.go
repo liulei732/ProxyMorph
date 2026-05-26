@@ -1,9 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"log"
+	"net/http"
+	"path/filepath"
 
+	"github.com/liulei/proxymorph/internal/app"
 	"github.com/liulei/proxymorph/internal/config"
 )
 
@@ -12,5 +14,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("ProxyMorph listening on %s\n", cfg.Addr)
+	application, err := app.New(cfg, filepath.Join(cfg.DataDir, "proxymorph.db"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer application.Close()
+	log.Printf("ProxyMorph listening on %s", cfg.Addr)
+	log.Fatal(http.ListenAndServe(cfg.Addr, application.Handler()))
 }
