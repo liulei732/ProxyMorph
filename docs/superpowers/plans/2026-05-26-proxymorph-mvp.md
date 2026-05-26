@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first self-hosted ProxyMorph release: a Go single-binary service with admin login, Clash-to-Surge 6 conversion, pinned node merging, embedded management UI, SQLite storage, and Docker deployment.
+**Goal:** Build the first self-hosted ProxyMorph release: a Go single-binary service with admin login, Clash-to-Surge 6 conversion, VLESS handling through bundled sing-box support, pinned node merging, embedded management UI, SQLite storage, and Docker deployment.
 
-**Architecture:** The backend is a modular Go HTTP service with SQLite persistence, tokenized public subscription endpoints, and embedded frontend assets. Conversion uses an internal normalized node model so Clash remote nodes and pinned nodes can be merged before rendering Surge 6 output.
+**Architecture:** The backend is a modular Go HTTP service with SQLite persistence, tokenized public subscription endpoints, and embedded frontend assets. Conversion uses an internal normalized node model so Clash remote nodes and pinned nodes can be merged before rendering Surge 6 output. VLESS nodes are preserved in that model and routed through a sing-box adapter when direct Surge rendering is insufficient.
 
-**Tech Stack:** Go 1.22+, SQLite via `modernc.org/sqlite`, migrations in Go, `net/http`, `golang.org/x/crypto/bcrypt`, YAML parsing via `gopkg.in/yaml.v3`, frontend with Vite + React + TypeScript, Docker multi-stage build.
+**Tech Stack:** Go 1.22+, SQLite via `modernc.org/sqlite`, migrations in Go, `net/http`, `golang.org/x/crypto/bcrypt`, YAML parsing via `gopkg.in/yaml.v3`, frontend with Vite + React + TypeScript, Docker multi-stage build, bundled `sing-box` binary for VLESS conversion support.
 
 ---
 
@@ -35,6 +35,8 @@ internal/convert/model.go
 internal/convert/clash.go
 internal/convert/surge.go
 internal/convert/merge.go
+internal/singbox/adapter.go
+internal/singbox/adapter_test.go
 internal/subscription/handlers.go
 internal/subscription/service.go
 web/package.json
@@ -59,6 +61,7 @@ Responsibility map:
 - `internal/tasks`: conversion task CRUD and task-level pinned-node settings.
 - `internal/nodes`: pinned node CRUD, URI import, and node parsing.
 - `internal/convert`: internal proxy model, Clash parser, merge logic, Surge 6 renderer.
+- `internal/singbox`: sing-box binary detection, command execution wrapper, and VLESS conversion adapter.
 - `internal/subscription`: public tokenized subscription URL handling and cache behavior.
 - `web`: management UI.
 
@@ -1038,6 +1041,80 @@ git add go.mod go.sum internal/convert
 git commit -m "feat: convert clash subscriptions to surge"
 ```
 
+## Task 4A: VLESS Parsing And Sing-box Adapter
+
+**Files:**
+- Modify: `internal/convert/clash.go`
+- Modify: `internal/convert/surge.go`
+- Modify: `internal/nodes/parser.go`
+- Create: `internal/singbox/adapter.go`
+- Create: `internal/singbox/adapter_test.go`
+- Modify: `internal/convert/converter_test.go`
+- Modify: `internal/nodes/parser_test.go`
+
+- [ ] **Step 1: Write failing VLESS parser tests**
+
+Add tests asserting that:
+
+- `vless://uuid@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy#Edge` parses into `convert.Node{Protocol:"vless"}`.
+- Clash YAML with `type: vless` preserves `uuid`, `tls`, `servername`, `network`, and `ws-opts.path` in `Node.Params`.
+- Rendering a VLESS node without a configured sing-box adapter returns an explicit error instead of silently dropping the node.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run:
+
+```bash
+go test ./internal/nodes ./internal/convert ./internal/singbox
+```
+
+Expected: FAIL because VLESS parsing and the sing-box adapter do not exist.
+
+- [ ] **Step 3: Implement VLESS parsing**
+
+Update `internal/nodes/parser.go` to handle `vless://`:
+
+- Use the URI username as `uuid`.
+- Store `security` as `tls` when it equals `tls` or `reality`.
+- Store `sni` as `sni`.
+- Store `flow`, `type` as `network`, `path` as `ws_path`, `serviceName` as `grpc_service_name`, `pbk` as `reality_public_key`, and `sid` as `reality_short_id`.
+
+Update `internal/convert/clash.go` so `type: vless` stores common VLESS fields in `Node.Params`, including `uuid`, `tls`, `servername` as `sni`, `flow`, `network`, `ws-opts.path`, and gRPC service name.
+
+- [ ] **Step 4: Implement sing-box adapter**
+
+Create `internal/singbox/adapter.go` with:
+
+- `type Adapter struct { Path string }`
+- `func New(path string) *Adapter`
+- `func (a *Adapter) Available() error`
+- `func (a *Adapter) ConvertVLESS(node convert.Node) (string, error)`
+
+For MVP, `ConvertVLESS` should return a clear error when `sing-box` is missing and use direct Surge-compatible rendering only for the simple TLS VLESS shape supported by tests. Keep the adapter boundary so richer sing-box command execution can be added without changing callers.
+
+- [ ] **Step 5: Wire renderer failure behavior**
+
+Update `internal/convert/surge.go` so VLESS nodes are not silently emitted as unknown generic nodes. If no VLESS renderer is configured, return an error from a new `RenderSurge6WithOptions` function. Keep `RenderSurge6` as a convenience wrapper for existing tests.
+
+- [ ] **Step 6: Run tests**
+
+Run:
+
+```bash
+go test ./internal/nodes ./internal/convert ./internal/singbox
+```
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+Run:
+
+```bash
+git add internal/nodes internal/convert internal/singbox
+git commit -m "feat: add vless and sing-box conversion boundary"
+```
+
 ## Task 5: Auth Service And Login API
 
 **Files:**
@@ -1955,7 +2032,7 @@ COPY --from=web /src/web/dist ./internal/web/dist
 RUN CGO_ENABLED=0 go build -o /out/proxymorph ./cmd/proxymorph
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates sing-box
 WORKDIR /app
 COPY --from=build /out/proxymorph /app/proxymorph
 VOLUME ["/data"]
@@ -1992,10 +2069,12 @@ Create `README.md` with:
 
 - What ProxyMorph does.
 - Current scope: Clash to Surge 6, pinned nodes, admin UI.
+- VLESS handling through bundled sing-box support.
 - Docker Compose quick start.
 - Environment variable table.
 - Security note recommending HTTPS behind a reverse proxy and changing default credentials.
 - Development commands: `go test ./...`, `cd web && npm install && npm run dev`.
+- Sing-box note: production Docker images include `sing-box`; local development can install it with the platform package manager or configure the adapter path.
 
 - [ ] **Step 4: Verify Docker build**
 
@@ -2099,6 +2178,7 @@ Spec coverage:
 - SQLite storage: covered by Task 2.
 - Admin username/password login: covered by Tasks 5 and 10.
 - Clash to Surge 6 conversion: covered by Task 4.
+- VLESS and sing-box support: covered by Task 4A and Task 11.
 - Pinned node library: covered by Tasks 3, 7, and 8.
 - URI import and form editing: URI import is covered by Tasks 3 and 7; form editing is covered by Task 9 UI and Task 7 CRUD APIs.
 - Task-level pinned-node merge controls: covered by Tasks 7 and 8.

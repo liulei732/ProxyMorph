@@ -20,6 +20,7 @@ Version 1 includes:
 - Management UI for subscription conversion tasks.
 - Clash subscription URL input.
 - Surge 6 subscription URL output.
+- VLESS node handling through a bundled `sing-box` adapter when direct rendering is not enough.
 - A pinned node library for fixed proxy nodes.
 - URI import and form editing for pinned nodes.
 - Task-level controls for merging pinned nodes into converted output.
@@ -46,6 +47,7 @@ Primary backend modules:
 - `proxy_parser`: Parses proxy URI formats into the internal node model.
 - `node_library`: Stores and manages pinned nodes.
 - `node_merge`: Combines remote subscription nodes with pinned nodes.
+- `singbox`: Detects and invokes the bundled `sing-box` binary for VLESS-related conversion support.
 - `subscription`: Serves tokenized public Surge 6 subscription URLs.
 - `storage`: Owns SQLite schema, migrations, and persistence APIs.
 - `web`: Embeds and serves built frontend assets.
@@ -64,6 +66,7 @@ Expected container behavior:
 - Accept initial administrator credentials from environment variables on first boot.
 - Preserve existing credentials after initialization unless explicitly reset.
 - Support a configurable public base URL for generated subscription links.
+- Include a `sing-box` executable in the Docker image and fail startup diagnostics clearly if it is unavailable.
 
 Important environment variables:
 
@@ -118,7 +121,7 @@ Core entities:
 - `created_at`
 - `updated_at`
 
-Protocol-specific values such as cipher, password, TLS, SNI, network type, WebSocket path, and plugin options live in `parameters_json`. This keeps the first schema flexible while still giving the UI typed forms for common protocols.
+Protocol-specific values such as cipher, password, UUID, TLS, SNI, flow, network type, WebSocket path, gRPC service name, and plugin options live in `parameters_json`. This keeps the first schema flexible while still giving the UI typed forms for common protocols.
 
 ## Pinned Nodes
 
@@ -126,7 +129,7 @@ Pinned nodes are fixed proxy nodes that can be added to converted subscriptions.
 
 The admin UI supports two node entry paths:
 
-- URI import: Paste one or more proxy URIs such as `ss://`, `vmess://`, or `trojan://`. ProxyMorph parses each URI into an internal node record.
+- URI import: Paste one or more proxy URIs such as `ss://`, `vmess://`, `trojan://`, or `vless://`. ProxyMorph parses each URI into an internal node record.
 - Form editing: Edit node name, protocol, server, port, credentials, TLS/SNI, network options, tags, enabled state, default inclusion, and sort order.
 
 Pinned node association works at two levels:
@@ -158,6 +161,30 @@ When a Surge 6 subscription URL is requested:
 12. Return the generated Surge 6 content.
 
 If upstream fetch or conversion fails, ProxyMorph returns the last successful cached output when available and records the error for the admin UI. If no cache exists, the subscription endpoint returns a concise failure response.
+
+## VLESS And Sing-box
+
+VLESS nodes are supported in the internal node model because they appear in both Clash subscriptions and fixed-node URI imports.
+
+ProxyMorph parses VLESS fields into normalized node parameters:
+
+- `uuid`
+- `server`
+- `port`
+- `tls`
+- `sni`
+- `flow`
+- `network`
+- `ws_path`
+- `grpc_service_name`
+- `reality_public_key`
+- `reality_short_id`
+
+When a Clash subscription contains `type: vless`, the Clash parser preserves the node instead of dropping it. When a fixed node is imported from `vless://`, the URI parser stores the same normalized fields.
+
+Surge 6 rendering should use direct rendering only for VLESS variants that ProxyMorph can express confidently. For variants that require richer protocol translation, ProxyMorph delegates to the bundled `sing-box` adapter. The adapter is responsible for detecting the `sing-box` binary, validating that it can run, and returning either converted node text or a structured error.
+
+If `sing-box` is unavailable or cannot convert a VLESS node, conversion fails for the current run. The subscription endpoint then returns the last successful cached output when one exists, while the admin UI records the VLESS/sing-box error on the task.
 
 ## Merge Rules
 
@@ -225,6 +252,7 @@ Error categories:
 - Clash YAML parse failed.
 - Proxy URI parse failed.
 - Unsupported node protocol or unsupported protocol option.
+- VLESS node required `sing-box`, but `sing-box` was missing or failed.
 - Surge 6 render failed.
 - Cache unavailable.
 
@@ -237,6 +265,8 @@ Backend tests:
 - Clash fixture parsing.
 - Surge 6 rendering from normalized internal nodes.
 - Pinned node URI parsing.
+- VLESS URI parsing and VLESS preservation from Clash YAML.
+- Sing-box adapter detection and failure behavior.
 - Pinned node merge behavior, including default include, explicit include, explicit exclude, disabled nodes, duplicate nodes, and name conflicts.
 - Subscription cache behavior on successful and failed refreshes.
 - Authentication login and protected API access.
@@ -279,6 +309,7 @@ The architecture should make these future additions natural:
 - SQLite is the initial database.
 - Version 1 supports one administrator account while reserving multi-user data boundaries.
 - Version 1 implements Clash to Surge 6 conversion only.
+- Version 1 handles VLESS nodes through the normalized node model and bundled `sing-box` support.
 - Fixed nodes are supported through a pinned node library.
 - Pinned nodes can be imported from URI and edited through forms.
 - Pinned nodes can be default-included globally and overridden per task.
