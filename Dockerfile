@@ -7,6 +7,7 @@ RUN npm run build
 
 FROM golang:1.26-alpine AS build
 WORKDIR /src
+ENV GOPROXY=https://goproxy.cn,direct
 RUN apk add --no-cache ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
