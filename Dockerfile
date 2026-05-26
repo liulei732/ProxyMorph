@@ -15,7 +15,7 @@ COPY . .
 COPY --from=web /src/web/dist ./internal/web/dist
 RUN CGO_ENABLED=0 go build -o /out/proxymorph ./cmd/proxymorph
 
-FROM alpine:3.22
+FROM alpine:edge
 RUN apk add --no-cache ca-certificates sing-box
 WORKDIR /app
 COPY --from=build /out/proxymorph /app/proxymorph
