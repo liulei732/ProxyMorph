@@ -99,7 +99,7 @@ func (s *Service) List(userID int64) ([]storage.PinnedNode, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []storage.PinnedNode
+	result := make([]storage.PinnedNode, 0)
 	for rows.Next() {
 		node, err := scanPinnedNode(rows)
 		if err != nil {
@@ -120,7 +120,7 @@ func (s *Service) EffectiveDefaultNodes(userID int64) ([]convert.Node, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []convert.Node
+	result := make([]convert.Node, 0)
 	for rows.Next() {
 		var node convert.Node
 		var paramsJSON, tagsJSON string

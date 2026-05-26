@@ -65,7 +65,7 @@ func (s *Service) List(userID int64) ([]storage.ConversionTask, error) {
 	}
 	defer rows.Close()
 
-	var result []storage.ConversionTask
+	result := make([]storage.ConversionTask, 0)
 	for rows.Next() {
 		task, err := scanTask(rows)
 		if err != nil {

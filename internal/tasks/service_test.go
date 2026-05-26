@@ -32,6 +32,27 @@ func TestCreateAndListTasks(t *testing.T) {
 	}
 }
 
+func TestListTasksReturnsEmptySlice(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+
+	tasks, err := service.List(userID)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if tasks == nil {
+		t.Fatal("List returned nil; want empty slice")
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("unexpected tasks: %#v", tasks)
+	}
+}
+
 func seedUser(t *testing.T, db *storage.DB) int64 {
 	t.Helper()
 	res, err := db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES ('admin', 'hash')`)

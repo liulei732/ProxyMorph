@@ -25,6 +25,27 @@ func TestImportURIs(t *testing.T) {
 	}
 }
 
+func TestListNodesReturnsEmptySlice(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+
+	nodes, err := service.List(userID)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if nodes == nil {
+		t.Fatal("List returned nil; want empty slice")
+	}
+	if len(nodes) != 0 {
+		t.Fatalf("unexpected nodes: %#v", nodes)
+	}
+}
+
 func seedUser(t *testing.T, db *storage.DB) int64 {
 	t.Helper()
 	res, err := db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES ('admin', 'hash')`)
