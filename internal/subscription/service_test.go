@@ -73,6 +73,25 @@ func TestGenerateSupportsBase64URIListSubscriptions(t *testing.T) {
 	}
 }
 
+func TestGenerateSkipsUnsupportedURIListEntries(t *testing.T) {
+	uriList := strings.Join([]string{
+		"vmess://eyJwcyI6IkxlZ2FjeSIsImFkZCI6ImxlZ2FjeS5leGFtcGxlIiwicG9ydCI6IjQ0MyJ9",
+		"ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@remote.example:8388#Remote",
+	}, "\n")
+	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
+
+	doc, info, err := parseSubscription([]byte(upstreamContent))
+	if err != nil {
+		t.Fatalf("parseSubscription returned error: %v", err)
+	}
+	if len(doc.Nodes) != 1 || doc.Nodes[0].Name != "Remote" {
+		t.Fatalf("unexpected nodes: %#v", doc.Nodes)
+	}
+	if info.Skipped != 1 || !strings.Contains(info.SkipSummary, "scheme=vmess") {
+		t.Fatalf("unexpected parse info: %#v", info)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {

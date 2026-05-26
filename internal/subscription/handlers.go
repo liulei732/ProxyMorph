@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"log"
 	"net/http"
 	"strings"
 
@@ -8,7 +9,11 @@ import (
 )
 
 type Handler struct {
-	Service *Service
+	Service Generator
+}
+
+type Generator interface {
+	GenerateByToken(token string) (string, error)
 }
 
 func (h Handler) ServeToken(w http.ResponseWriter, r *http.Request) {
@@ -19,6 +24,7 @@ func (h Handler) ServeToken(w http.ResponseWriter, r *http.Request) {
 	}
 	output, err := h.Service.GenerateByToken(token)
 	if err != nil {
+		log.Printf("subscription generation failed token=%q error=%q", safeTokenLabel(token), err)
 		httpapi.Error(w, http.StatusBadGateway, "subscription generation failed")
 		return
 	}
