@@ -104,7 +104,7 @@ export const translations = {
       cachePolicy: "缓存策略",
       cachePolicyValue: "按需刷新，失败时使用上次成功结果",
       vlessHelper: "VLESS 辅助",
-      vlessHelperValue: "Docker 镜像已包含 sing-box",
+      vlessHelperValue: "启用后用 sing-box 中转为 Surge socks5 节点",
     },
   },
   en: {
@@ -199,7 +199,7 @@ export const translations = {
       cachePolicy: "Cache Policy",
       cachePolicyValue: "Refresh on request with last-good fallback",
       vlessHelper: "VLESS Helper",
-      vlessHelperValue: "sing-box bundled in Docker",
+      vlessHelperValue: "Relays VLESS through sing-box as Surge socks5 nodes",
     },
   },
 } as const;

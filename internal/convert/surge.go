@@ -139,6 +139,15 @@ func renderNodeWithOptions(node Node, opts RenderOptions) (string, error) {
 	switch node.Protocol {
 	case "ss":
 		return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=%s", node.Name, node.Server, node.Port, node.Params["cipher"], node.Params["password"]), nil
+	case "socks5":
+		parts := []string{fmt.Sprintf("%s = socks5, %s, %d", node.Name, node.Server, node.Port)}
+		if username := node.Params["username"]; username != "" {
+			parts = append(parts, "username="+username)
+		}
+		if password := node.Params["password"]; password != "" {
+			parts = append(parts, "password="+password)
+		}
+		return strings.Join(parts, ", "), nil
 	case "trojan":
 		parts := []string{fmt.Sprintf("%s = trojan, %s, %d, password=%s", node.Name, node.Server, node.Port, node.Params["password"])}
 		if sni := node.Params["sni"]; sni != "" {

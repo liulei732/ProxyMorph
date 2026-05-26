@@ -146,6 +146,7 @@ func parseVLESS(u *url.URL) (convert.Node, error) {
 	copyParam(params, "flow", query.Get("flow"))
 	copyParam(params, "network", query.Get("type"))
 	copyParam(params, "ws_path", query.Get("path"))
+	copyParam(params, "ws_host", query.Get("host"))
 	copyParam(params, "grpc_service_name", query.Get("serviceName"))
 	copyParam(params, "reality_public_key", query.Get("pbk"))
 	copyParam(params, "reality_short_id", query.Get("sid"))

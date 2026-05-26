@@ -40,6 +40,7 @@ func New(cfg config.Config, dbPath string) (*App, error) {
 		subSvc:  subscription.NewService(db, http.DefaultClient),
 		mux:     http.NewServeMux(),
 	}
+	a.subSvc.SetVLESSRelay(cfg.VLESSRelay)
 	a.routes()
 	return a, nil
 }
@@ -49,5 +50,9 @@ func (a *App) Handler() http.Handler {
 }
 
 func (a *App) Close() error {
+	if err := a.subSvc.Close(); err != nil {
+		_ = a.db.Close()
+		return err
+	}
 	return a.db.Close()
 }

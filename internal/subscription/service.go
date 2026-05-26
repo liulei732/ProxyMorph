@@ -13,15 +13,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liulei/proxymorph/internal/config"
 	"github.com/liulei/proxymorph/internal/convert"
 	"github.com/liulei/proxymorph/internal/nodes"
+	"github.com/liulei/proxymorph/internal/singbox"
 	"github.com/liulei/proxymorph/internal/storage"
 )
 
 type Service struct {
-	db     *storage.DB
-	client *http.Client
-	nodes  *nodes.Service
+	db          *storage.DB
+	client      *http.Client
+	nodes       *nodes.Service
+	vlessRelay  *singbox.Manager
+	relayConfig config.VLESSRelayConfig
 }
 
 func NewService(db *storage.DB, client *http.Client) *Service {
@@ -29,6 +33,15 @@ func NewService(db *storage.DB, client *http.Client) *Service {
 		client = http.DefaultClient
 	}
 	return &Service{db: db, client: client, nodes: nodes.NewService(db)}
+}
+
+func (s *Service) SetVLESSRelay(cfg config.VLESSRelayConfig) {
+	s.relayConfig = cfg
+	if cfg.Enabled {
+		s.vlessRelay = singbox.NewManager(cfg)
+		return
+	}
+	s.vlessRelay = nil
 }
 
 func (s *Service) GenerateByTaskID(taskID int64) (string, error) {
@@ -70,6 +83,21 @@ func (s *Service) GenerateByTaskID(taskID int64) (string, error) {
 	}
 	log.Printf("subscription task=%d stage=pinned status=ok nodes=%d merge_default=%t", task.ID, len(pinned), task.MergeDefaultPinnedNodes)
 	doc.Nodes = convert.MergeNodes(doc.Nodes, pinned, convert.MergeOptions{Mode: task.PinnedNodeOrderMode})
+	if s.vlessRelay != nil {
+		relayStartedAt := time.Now()
+		doc.Nodes, err = s.vlessRelay.Configure(doc.Nodes)
+		if err != nil {
+			log.Printf("subscription task=%d stage=vless_relay status=error duration_ms=%d error=%q", task.ID, time.Since(relayStartedAt).Milliseconds(), err)
+			s.recordRun(task.ID, "error", err.Error())
+			return "", err
+		}
+		if err := s.vlessRelay.Start(); err != nil {
+			log.Printf("subscription task=%d stage=vless_relay_start status=error duration_ms=%d error=%q", task.ID, time.Since(relayStartedAt).Milliseconds(), err)
+			s.recordRun(task.ID, "error", err.Error())
+			return "", err
+		}
+		log.Printf("subscription task=%d stage=vless_relay status=ok duration_ms=%d public_host=%q ports=%d-%d", task.ID, time.Since(relayStartedAt).Milliseconds(), s.relayConfig.PublicHost, s.relayConfig.PortStart, s.relayConfig.PortEnd)
+	}
 	var unsupported []convert.Node
 	doc.Nodes, unsupported = convert.Surge6SupportedNodes(doc.Nodes)
 	if len(unsupported) > 0 {
@@ -94,6 +122,13 @@ func (s *Service) GenerateByTaskID(taskID int64) (string, error) {
 	s.recordRun(task.ID, "success", "")
 	log.Printf("subscription task=%d stage=render status=ok nodes=%d groups=%d output_bytes=%d", task.ID, len(doc.Nodes), len(doc.Groups), len(output))
 	return output, nil
+}
+
+func (s *Service) Close() error {
+	if s.vlessRelay == nil {
+		return nil
+	}
+	return s.vlessRelay.Stop()
 }
 
 func (s *Service) GenerateByToken(token string) (string, error) {

@@ -3,6 +3,7 @@ services:
     build: .
     ports:
       - "8080:8080"
+      - "18000-18099:18000-18099"
     volumes:
       - proxymorph-data:/data
     environment:
@@ -11,6 +12,13 @@ services:
       PROXYMORPH_ADMIN_USERNAME: "admin"
       PROXYMORPH_ADMIN_PASSWORD: "change-me"
       PROXYMORPH_SESSION_SECRET: "change-this-32-byte-minimum-secret"
+      PROXYMORPH_VLESS_RELAY_ENABLED: "true"
+      PROXYMORPH_VLESS_RELAY_PUBLIC_HOST: "localhost"
+      PROXYMORPH_VLESS_RELAY_LISTEN_HOST: "0.0.0.0"
+      PROXYMORPH_VLESS_RELAY_PORT_START: "18000"
+      PROXYMORPH_VLESS_RELAY_PORT_END: "18099"
+      PROXYMORPH_VLESS_RELAY_USERNAME: "proxymorph"
+      PROXYMORPH_VLESS_RELAY_PASSWORD: "change-this-relay-password"
 
 volumes:
   proxymorph-data:

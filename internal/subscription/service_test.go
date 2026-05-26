@@ -4,10 +4,12 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/liulei/proxymorph/internal/config"
 	"github.com/liulei/proxymorph/internal/storage"
 )
 
@@ -105,6 +107,67 @@ func TestGenerateFailsWhenSubscriptionOnlyContainsVLESS(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no Surge 6 compatible proxy nodes") {
 		t.Fatalf("error = %v, want no compatible proxy nodes", err)
 	}
+}
+
+func TestGenerateRelaysVLESSWhenRelayEnabled(t *testing.T) {
+	uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@edge.example:443?security=tls&sni=edge.example&type=ws&path=%2Fproxy&host=cdn.example#Edge"
+	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/sub")
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+	defer service.Close()
+
+	output, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	for _, want := range []string{
+		"Edge = socks5, proxy.example.test, 19000",
+		"username=relay",
+		"password=secret",
+		"Proxy = select, Edge",
+		"FINAL,Proxy",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "= vless") {
+		t.Fatalf("output should not contain native VLESS proxy:\n%s", output)
+	}
+}
+
+func fakeSingBox(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "sing-box")
+	script := "#!/bin/sh\nwhile true; do sleep 1; done\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestGenerateSkipsUnsupportedURIListEntries(t *testing.T) {
