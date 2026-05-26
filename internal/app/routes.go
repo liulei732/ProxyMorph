@@ -6,6 +6,7 @@ import (
 	"github.com/liulei/proxymorph/internal/auth"
 	"github.com/liulei/proxymorph/internal/httpapi"
 	"github.com/liulei/proxymorph/internal/nodes"
+	"github.com/liulei/proxymorph/internal/subscription"
 	"github.com/liulei/proxymorph/internal/tasks"
 )
 
@@ -13,6 +14,7 @@ func (a *App) routes() {
 	authHandler := auth.Handler{Service: a.authSvc}
 	taskHandler := tasks.Handler{Service: a.taskSvc}
 	nodeHandler := nodes.Handler{Service: a.nodeSvc}
+	subHandler := subscription.Handler{Service: a.subSvc}
 	a.mux.HandleFunc("/healthz", httpapi.Method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte("ok\n"))
@@ -30,4 +32,5 @@ func (a *App) routes() {
 	})
 	a.mux.HandleFunc("/api/nodes", httpapi.Method(http.MethodGet, nodeHandler.List))
 	a.mux.HandleFunc("/api/nodes/import", httpapi.Method(http.MethodPost, nodeHandler.Import))
+	a.mux.HandleFunc("/sub/", httpapi.Method(http.MethodGet, subHandler.ServeToken))
 }

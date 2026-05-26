@@ -7,6 +7,7 @@ import (
 	"github.com/liulei/proxymorph/internal/config"
 	"github.com/liulei/proxymorph/internal/nodes"
 	"github.com/liulei/proxymorph/internal/storage"
+	"github.com/liulei/proxymorph/internal/subscription"
 	"github.com/liulei/proxymorph/internal/tasks"
 )
 
@@ -16,6 +17,7 @@ type App struct {
 	authSvc *auth.Service
 	taskSvc *tasks.Service
 	nodeSvc *nodes.Service
+	subSvc  *subscription.Service
 	mux     *http.ServeMux
 }
 
@@ -35,6 +37,7 @@ func New(cfg config.Config, dbPath string) (*App, error) {
 		authSvc: authSvc,
 		taskSvc: tasks.NewService(db),
 		nodeSvc: nodes.NewService(db),
+		subSvc:  subscription.NewService(db, http.DefaultClient),
 		mux:     http.NewServeMux(),
 	}
 	a.routes()
