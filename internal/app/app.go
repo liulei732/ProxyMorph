@@ -5,13 +5,17 @@ import (
 
 	"github.com/liulei/proxymorph/internal/auth"
 	"github.com/liulei/proxymorph/internal/config"
+	"github.com/liulei/proxymorph/internal/nodes"
 	"github.com/liulei/proxymorph/internal/storage"
+	"github.com/liulei/proxymorph/internal/tasks"
 )
 
 type App struct {
 	cfg     config.Config
 	db      *storage.DB
 	authSvc *auth.Service
+	taskSvc *tasks.Service
+	nodeSvc *nodes.Service
 	mux     *http.ServeMux
 }
 
@@ -25,7 +29,14 @@ func New(cfg config.Config, dbPath string) (*App, error) {
 		db.Close()
 		return nil, err
 	}
-	a := &App{cfg: cfg, db: db, authSvc: authSvc, mux: http.NewServeMux()}
+	a := &App{
+		cfg:     cfg,
+		db:      db,
+		authSvc: authSvc,
+		taskSvc: tasks.NewService(db),
+		nodeSvc: nodes.NewService(db),
+		mux:     http.NewServeMux(),
+	}
 	a.routes()
 	return a, nil
 }
