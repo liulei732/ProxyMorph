@@ -3,6 +3,8 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/liulei/proxymorph/internal/httpapi"
 )
 
 type Handler struct {
@@ -32,4 +34,16 @@ func (h Handler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func (h Handler) Me(w http.ResponseWriter, r *http.Request) {
+	user, err := h.Service.UserByID(r.Context(), httpapi.UserID(r.Context()))
+	if err != nil {
+		httpapi.Error(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	httpapi.JSON(w, http.StatusOK, map[string]any{
+		"id":       user.ID,
+		"username": user.Username,
+	})
 }

@@ -28,6 +28,7 @@ type PinnedNode = {
 
 function App() {
   const [loggedIn, setLoggedIn] = React.useState(false);
+  const [checkingSession, setCheckingSession] = React.useState(true);
   const [tab, setTab] = React.useState("overview");
   const [language, setLanguage] = React.useState<Language>(() => getInitialLanguage(localStorage.getItem(languageStorageKey)));
   const [tasks, setTasks] = React.useState<Task[]>([]);
@@ -39,6 +40,31 @@ function App() {
     setLanguage(nextLanguage);
     localStorage.setItem(languageStorageKey, nextLanguage);
   }
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api("/api/me")
+      .then(async () => {
+        if (cancelled) {
+          return;
+        }
+        setLoggedIn(true);
+        await refresh();
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoggedIn(false);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCheckingSession(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function refresh() {
     const [nextTasks, nextNodes] = await Promise.all([
@@ -64,12 +90,17 @@ function App() {
 
   async function createTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setError("");
     const form = new FormData(event.currentTarget);
     const payload = Object.fromEntries(form);
     payload.refresh_interval_seconds = Number(payload.refresh_interval_seconds || 3600) as unknown as FormDataEntryValue;
-    await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
-    event.currentTarget.reset();
-    await refresh();
+    try {
+      await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
+      event.currentTarget.reset();
+      await refresh();
+    } catch {
+      setError(t.createFailed);
+    }
   }
 
   async function importNodes(event: React.FormEvent<HTMLFormElement>) {
@@ -78,6 +109,20 @@ function App() {
     await api("/api/nodes/import", { method: "POST", body: JSON.stringify(payload) });
     event.currentTarget.reset();
     await refresh();
+  }
+
+  if (checkingSession) {
+    return (
+      <main className="login">
+        <section className="identity">
+          <div className="logo">PM</div>
+          <div>
+            <h1>ProxyMorph</h1>
+            <p>{t.loadingSession}</p>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   if (!loggedIn) {
@@ -144,6 +189,7 @@ function App() {
               <label>{t.forms.refreshSeconds}<input name="refresh_interval_seconds" type="number" defaultValue="3600" /></label>
               <button><Plus size={16} /> {t.forms.create}</button>
             </form>
+            {error && <p className="error">{error}</p>}
             <TaskList tasks={tasks} t={t} />
           </section>
         )}
@@ -199,10 +245,11 @@ function TaskList({ tasks, t }: { tasks: Task[]; t: typeof translations[Language
               <span>{task.SourceURL}</span>
             </div>
             <span className="badge">{`${task.InputType} ${t.taskList.route} ${task.OutputType}`}</span>
-            <span>{task.Enabled ? t.taskList.enabled : t.taskList.disabled}</span>
+            <span className={task.LastErrorMessage ? "status-error" : ""}>{task.LastErrorMessage ? t.taskList.failed : task.Enabled ? t.taskList.enabled : t.taskList.disabled}</span>
             <button onClick={() => navigator.clipboard.writeText(absoluteSubscriptionURL(task.SubscriptionURL))}>
               <Copy size={15} /> {t.taskList.copy}
             </button>
+            {task.LastErrorMessage && <p className="row-error">{task.LastErrorMessage}</p>}
           </div>
         )) : <p className="muted">{t.taskList.empty}</p>}
       </div>

@@ -51,6 +51,8 @@ h1, h2, h3, p { margin-top: 0; }
 .row { display: grid; grid-template-columns: 1.4fr 0.7fr 0.6fr auto; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 7px; padding: 12px; background: #fbfcfe; }
 .row strong { display: block; }
 .row span { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
+.status-error { color: var(--danger) !important; font-weight: 750; }
+.row-error { grid-column: 1 / -1; margin: -2px 0 0; color: var(--danger); font-size: 13px; overflow-wrap: anywhere; }
 .badge { justify-self: start; display: inline-flex; align-items: center; min-height: 24px; border-radius: 999px; padding: 0 9px; background: #e7f5f2; color: var(--accent) !important; font-size: 12px; font-weight: 750; }
 pre { overflow: auto; min-height: 180px; padding: 14px; border-radius: 7px; background: #101828; color: #f2f4f7; }
 @media (max-width: 860px) {

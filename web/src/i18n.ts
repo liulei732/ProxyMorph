@@ -18,6 +18,8 @@ export const translations = {
     password: "密码",
     signIn: "登录",
     loginFailed: "登录失败。",
+    loadingSession: "正在检查登录状态...",
+    createFailed: "创建任务失败。",
     refresh: "刷新",
     tabs: {
       overview: "概览",
@@ -57,6 +59,7 @@ export const translations = {
       copy: "复制",
       enabled: "启用",
       disabled: "停用",
+      failed: "失败",
       route: "到",
     },
     nodeList: {
@@ -84,6 +87,8 @@ export const translations = {
     password: "Password",
     signIn: "Sign in",
     loginFailed: "Login failed.",
+    loadingSession: "Checking session...",
+    createFailed: "Create task failed.",
     refresh: "Refresh",
     tabs: {
       overview: "Overview",
@@ -123,6 +128,7 @@ export const translations = {
       copy: "Copy",
       enabled: "Enabled",
       disabled: "Disabled",
+      failed: "Failed",
       route: "to",
     },
     nodeList: {

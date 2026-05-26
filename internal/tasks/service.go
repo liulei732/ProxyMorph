@@ -79,23 +79,29 @@ func (s *Service) List(userID int64) ([]storage.ConversionTask, error) {
 	defer rows.Close()
 
 	result := make([]storage.ConversionTask, 0)
+	missingTokenIDs := make([]int64, 0)
 	for rows.Next() {
 		task, err := scanTask(rows)
 		if err != nil {
 			return nil, err
 		}
 		if task.SubscriptionToken == "" {
-			if err := s.ensureSubscriptionToken(task.ID); err != nil {
-				return nil, err
-			}
-			task, err = s.Get(userID, task.ID)
-			if err != nil {
-				return nil, err
-			}
+			missingTokenIDs = append(missingTokenIDs, task.ID)
 		}
 		result = append(result, task)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(missingTokenIDs) == 0 {
+		return result, nil
+	}
+	for _, id := range missingTokenIDs {
+		if err := s.ensureSubscriptionToken(id); err != nil {
+			return nil, err
+		}
+	}
+	return s.List(userID)
 }
 
 func (s *Service) get(userID, id int64) (storage.ConversionTask, error) {
