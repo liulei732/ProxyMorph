@@ -70,6 +70,7 @@ func RenderSurge6(nodes []Node, groups []Group, rules []string) string {
 
 func RenderSurge6WithOptions(nodes []Node, groups []Group, rules []string, opts RenderOptions) (string, error) {
 	var b strings.Builder
+	defaultPolicy := "Proxy"
 	b.WriteString("[Proxy]\n")
 	for _, node := range nodes {
 		rendered, err := renderNodeWithOptions(node, opts)
@@ -92,6 +93,7 @@ func RenderSurge6WithOptions(nodes []Node, groups []Group, rules []string, opts 
 		}
 		b.WriteString("\n")
 	} else {
+		defaultPolicy = groups[0].Name
 		for _, group := range groups {
 			b.WriteString(group.Name)
 			b.WriteString(" = ")
@@ -104,11 +106,28 @@ func RenderSurge6WithOptions(nodes []Node, groups []Group, rules []string, opts 
 		}
 	}
 	b.WriteString("\n[Rule]\n")
-	for _, rule := range rules {
+	for _, rule := range ensureFinalRule(rules, defaultPolicy) {
 		b.WriteString(rule)
 		b.WriteString("\n")
 	}
 	return b.String(), nil
+}
+
+func ensureFinalRule(rules []string, defaultPolicy string) []string {
+	if defaultPolicy == "" {
+		defaultPolicy = "Proxy"
+	}
+	next := make([]string, 0, len(rules)+1)
+	for _, rule := range rules {
+		if strings.TrimSpace(rule) == "" {
+			continue
+		}
+		next = append(next, rule)
+	}
+	if len(next) == 0 || !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(next[len(next)-1])), "FINAL,") {
+		next = append(next, "FINAL,"+defaultPolicy)
+	}
+	return next
 }
 
 func renderNode(node Node) string {

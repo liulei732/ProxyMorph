@@ -122,3 +122,25 @@ func TestFilterGroupsForNodesRemovesUnsupportedProxyNames(t *testing.T) {
 		t.Fatalf("proxies = %q, want Remote,Pinned", got)
 	}
 }
+
+func TestRenderSurge6AppendsFinalRuleWhenMissing(t *testing.T) {
+	out := RenderSurge6(
+		[]Node{{Name: "Remote", Protocol: "ss", Server: "remote.example", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "pass"}}},
+		nil,
+		nil,
+	)
+	if !strings.Contains(out, "\n[Rule]\nFINAL,Proxy\n") {
+		t.Fatalf("output should end rules with FINAL,Proxy:\n%s", out)
+	}
+}
+
+func TestRenderSurge6UsesFirstGroupForDefaultFinalRule(t *testing.T) {
+	out := RenderSurge6(
+		[]Node{{Name: "Remote", Protocol: "ss", Server: "remote.example", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "pass"}}},
+		[]Group{{Name: "Auto", Type: "select", Proxies: []string{"Remote"}}},
+		[]string{"DOMAIN-SUFFIX,example.com,Auto"},
+	)
+	if !strings.Contains(out, "DOMAIN-SUFFIX,example.com,Auto\nFINAL,Auto\n") {
+		t.Fatalf("output should append FINAL using first group:\n%s", out)
+	}
+}
