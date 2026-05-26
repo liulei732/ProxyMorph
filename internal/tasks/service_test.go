@@ -30,6 +30,16 @@ func TestCreateAndListTasks(t *testing.T) {
 	if len(tasks) != 1 || tasks[0].Name != "Main" {
 		t.Fatalf("unexpected tasks: %#v", tasks)
 	}
+	if tasks[0].SubscriptionURL == "" {
+		t.Fatalf("expected subscription URL: %#v", tasks[0])
+	}
+	var taskID int64
+	if err := db.SQL().QueryRow(`SELECT task_id FROM subscription_tokens WHERE token = ?`, tasks[0].SubscriptionToken).Scan(&taskID); err != nil {
+		t.Fatalf("expected stored subscription token: %v", err)
+	}
+	if taskID != task.ID {
+		t.Fatalf("token task_id = %d, want %d", taskID, task.ID)
+	}
 }
 
 func TestListTasksReturnsEmptySlice(t *testing.T) {

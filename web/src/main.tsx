@@ -12,6 +12,7 @@ type Task = {
   OutputType: string;
   SourceURL: string;
   Enabled: boolean;
+  SubscriptionURL: string;
   LastErrorMessage: string;
 };
 
@@ -199,7 +200,7 @@ function TaskList({ tasks, t }: { tasks: Task[]; t: typeof translations[Language
             </div>
             <span className="badge">{`${task.InputType} ${t.taskList.route} ${task.OutputType}`}</span>
             <span>{task.Enabled ? t.taskList.enabled : t.taskList.disabled}</span>
-            <button onClick={() => navigator.clipboard.writeText(`${location.origin}/sub/token-${task.ID}`)}>
+            <button onClick={() => navigator.clipboard.writeText(absoluteSubscriptionURL(task.SubscriptionURL))}>
               <Copy size={15} /> {t.taskList.copy}
             </button>
           </div>
@@ -228,6 +229,13 @@ function NodeList({ nodes, t }: { nodes: PinnedNode[]; t: typeof translations[La
       </div>
     </section>
   );
+}
+
+function absoluteSubscriptionURL(url: string) {
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
+  return `${location.origin}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

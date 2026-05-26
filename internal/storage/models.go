@@ -21,6 +21,8 @@ type ConversionTask struct {
 	RefreshIntervalSeconds  int
 	MergeDefaultPinnedNodes bool
 	PinnedNodeOrderMode     string
+	SubscriptionToken       string
+	SubscriptionURL         string
 	LastSuccessAt           *time.Time
 	LastErrorAt             *time.Time
 	LastErrorMessage        string
