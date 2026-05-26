@@ -79,7 +79,7 @@ func (s *Service) GenerateByTaskID(taskID int64) (string, error) {
 		err := fmt.Errorf("subscription contains no Surge 6 compatible proxy nodes; unsupported nodes: %s", unsupportedNodeSummary(unsupported))
 		log.Printf("subscription task=%d stage=render status=error error=%q", task.ID, err)
 		s.recordRun(task.ID, "error", err.Error())
-		return s.cachedOrError(task.ID, err)
+		return "", err
 	}
 	if len(doc.Groups) == 0 {
 		doc.Groups = []convert.Group{{Name: "Proxy", Type: "select", Proxies: nodeNames(doc.Nodes)}}
