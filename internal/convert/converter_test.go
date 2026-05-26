@@ -64,6 +64,38 @@ rules:
 	}
 }
 
+func TestRenderTrojanWebSocketTransport(t *testing.T) {
+	out := RenderSurge6(
+		[]Node{{
+			Name:     "Edge",
+			Protocol: "trojan",
+			Server:   "example.com",
+			Port:     2053,
+			Params: map[string]string{
+				"password": "secret",
+				"sni":      "sni.example.com",
+				"network":  "ws",
+				"ws_path":  "/video",
+				"ws_host":  "host.example.com",
+			},
+		}},
+		nil,
+		nil,
+	)
+	for _, want := range []string{
+		"Edge = trojan, example.com, 2053",
+		"password=secret",
+		"sni=sni.example.com",
+		"ws=true",
+		"ws-path=/video",
+		"ws-headers=Host:host.example.com",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestParseClashPreservesVLESS(t *testing.T) {
 	input := []byte(`
 proxies:

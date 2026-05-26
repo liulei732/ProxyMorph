@@ -25,6 +25,27 @@ func TestParseTrojanURI(t *testing.T) {
 	}
 }
 
+func TestParseTrojanURIWithWebSocketTransport(t *testing.T) {
+	node, err := ParseURI("trojan://secret@example.com:2053?allowInsecure=0&peer=peer.example.com&sni=sni.example.com&type=ws&path=%2Fvideo&host=host.example.com#Edge")
+	if err != nil {
+		t.Fatalf("ParseURI returned error: %v", err)
+	}
+	for key, want := range map[string]string{
+		"password": "secret",
+		"sni":      "sni.example.com",
+		"network":  "ws",
+		"ws_path":  "/video",
+		"ws_host":  "host.example.com",
+	} {
+		if node.Params[key] != want {
+			t.Fatalf("param %s = %q, want %q; params=%#v", key, node.Params[key], want, node.Params)
+		}
+	}
+	if node.Params["skip_cert_verify"] != "" {
+		t.Fatalf("skip_cert_verify = %q, want empty", node.Params["skip_cert_verify"])
+	}
+}
+
 func TestParseVLESSURI(t *testing.T) {
 	node, err := ParseURI("vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy#Edge")
 	if err != nil {

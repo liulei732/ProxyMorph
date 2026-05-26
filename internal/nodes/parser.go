@@ -112,9 +112,14 @@ func parseTrojan(u *url.URL) (convert.Node, error) {
 		return convert.Node{}, fmt.Errorf("invalid trojan port: %w", err)
 	}
 	name, _ := url.PathUnescape(u.Fragment)
+	query := u.Query()
 	params := map[string]string{"password": u.User.Username()}
-	if sni := u.Query().Get("sni"); sni != "" {
-		params["sni"] = sni
+	copyParam(params, "sni", query.Get("sni"))
+	copyParam(params, "network", query.Get("type"))
+	copyParam(params, "ws_path", query.Get("path"))
+	copyParam(params, "ws_host", query.Get("host"))
+	if query.Get("allowInsecure") == "1" || strings.EqualFold(query.Get("allowInsecure"), "true") {
+		params["skip_cert_verify"] = "true"
 	}
 	return convert.Node{
 		Name:     fallbackName(name, u.Hostname()),
