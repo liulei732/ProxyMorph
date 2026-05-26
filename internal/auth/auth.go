@@ -29,15 +29,33 @@ func (s *Service) EnsureAdmin(username, password string) error {
 	if username == "" {
 		username = "admin"
 	}
-	if password == "" {
-		password = "admin"
-	}
+	passwordConfigured := password != ""
 	var count int
 	if err := s.db.SQL().QueryRow(`SELECT count(*) FROM users`).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
-		return nil
+		if !passwordConfigured {
+			return nil
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		res, err := s.db.SQL().Exec(`UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?`, string(hash), username)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected > 0 {
+			return nil
+		}
+	}
+	if !passwordConfigured {
+		password = "admin"
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
