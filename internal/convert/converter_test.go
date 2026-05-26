@@ -93,3 +93,32 @@ func TestRenderSurge6WithOptionsRequiresVLESSRenderer(t *testing.T) {
 		t.Fatalf("error = %v, want ErrVLESSRendererRequired", err)
 	}
 }
+
+func TestSurge6SupportedNodesFiltersVLESS(t *testing.T) {
+	nodes := []Node{
+		{Name: "Remote", Protocol: "ss"},
+		{Name: "Edge", Protocol: "vless"},
+		{Name: "Legacy", Protocol: "vmess"},
+		{Name: "Pinned", Protocol: "trojan"},
+	}
+	supported, unsupported := Surge6SupportedNodes(nodes)
+	if len(supported) != 3 || supported[0].Name != "Remote" || supported[1].Name != "Legacy" || supported[2].Name != "Pinned" {
+		t.Fatalf("unexpected supported nodes: %#v", supported)
+	}
+	if len(unsupported) != 1 || unsupported[0].Name != "Edge" {
+		t.Fatalf("unexpected unsupported nodes: %#v", unsupported)
+	}
+}
+
+func TestFilterGroupsForNodesRemovesUnsupportedProxyNames(t *testing.T) {
+	groups := []Group{{Name: "Proxy", Type: "select", Proxies: []string{"Remote", "Edge", "Pinned"}}}
+	nodes := []Node{{Name: "Remote", Protocol: "ss"}, {Name: "Pinned", Protocol: "trojan"}}
+	filtered := FilterGroupsForNodes(groups, nodes)
+	if len(filtered) != 1 {
+		t.Fatalf("groups = %d, want 1", len(filtered))
+	}
+	got := strings.Join(filtered[0].Proxies, ",")
+	if got != "Remote,Pinned" {
+		t.Fatalf("proxies = %q, want Remote,Pinned", got)
+	}
+}

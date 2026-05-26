@@ -13,6 +13,54 @@ type RenderOptions struct {
 	VLESSRenderer func(Node) (string, error)
 }
 
+func Surge6SupportedNodes(nodes []Node) ([]Node, []Node) {
+	supported := make([]Node, 0, len(nodes))
+	unsupported := make([]Node, 0)
+	for _, node := range nodes {
+		if isSurge6SupportedProtocol(node.Protocol) {
+			supported = append(supported, node)
+			continue
+		}
+		unsupported = append(unsupported, node)
+	}
+	return supported, unsupported
+}
+
+func FilterGroupsForNodes(groups []Group, nodes []Node) []Group {
+	allowed := make(map[string]struct{}, len(nodes)+2)
+	allowed["DIRECT"] = struct{}{}
+	allowed["REJECT"] = struct{}{}
+	for _, node := range nodes {
+		allowed[node.Name] = struct{}{}
+	}
+	for _, group := range groups {
+		allowed[group.Name] = struct{}{}
+	}
+	filtered := make([]Group, 0, len(groups))
+	for _, group := range groups {
+		next := Group{Name: group.Name, Type: group.Type, Proxies: make([]string, 0, len(group.Proxies))}
+		for _, proxy := range group.Proxies {
+			if _, ok := allowed[proxy]; ok {
+				next.Proxies = append(next.Proxies, proxy)
+			}
+		}
+		if len(next.Proxies) == 0 {
+			next.Proxies = append(next.Proxies, "DIRECT")
+		}
+		filtered = append(filtered, next)
+	}
+	return filtered
+}
+
+func isSurge6SupportedProtocol(protocol string) bool {
+	switch protocol {
+	case "vless":
+		return false
+	default:
+		return true
+	}
+}
+
 func RenderSurge6(nodes []Node, groups []Group, rules []string) string {
 	output, _ := RenderSurge6WithOptions(nodes, groups, rules, RenderOptions{
 		VLESSRenderer: renderSimpleVLESS,

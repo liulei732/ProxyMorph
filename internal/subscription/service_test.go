@@ -64,12 +64,38 @@ func TestGenerateSupportsBase64URIListSubscriptions(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Remote = ss, remote.example, 8388",
-		"Edge = vless, edge.example, 443",
-		"Proxy = select, Remote, Edge, Pinned",
+		"Proxy = select, Remote, Pinned",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
 		}
+	}
+	if strings.Contains(output, "vless") || strings.Contains(output, "Edge") {
+		t.Fatalf("output should not contain unsupported VLESS node:\n%s", output)
+	}
+}
+
+func TestGenerateFailsWhenSubscriptionOnlyContainsVLESS(t *testing.T) {
+	uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@edge.example:443?security=tls&sni=edge.example&type=tcp#Edge"
+	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/sub")
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	_, err = service.GenerateByTaskID(1)
+	if err == nil || !strings.Contains(err.Error(), "no Surge 6 compatible proxy nodes") {
+		t.Fatalf("error = %v, want no compatible proxy nodes", err)
 	}
 }
 
@@ -100,6 +126,26 @@ func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func seedTaskAndPinnedNode(t *testing.T, db *storage.DB, upstreamURL string) {
 	t.Helper()
+	userID := seedTaskUser(t, db)
+	seedTask(t, db, userID, upstreamURL, 1)
+	_, err := db.SQL().Exec(`
+		INSERT INTO pinned_nodes (
+			user_id, name, protocol, server, port, parameters_json, tags_json,
+			enabled, default_include, sort_order
+		) VALUES (?, 'Pinned', 'trojan', 'pinned.example', 443, '{"password":"secret"}', '[]', 1, 1, 0)`, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedTaskWithoutPinnedNodes(t *testing.T, db *storage.DB, upstreamURL string) {
+	t.Helper()
+	userID := seedTaskUser(t, db)
+	seedTask(t, db, userID, upstreamURL, 0)
+}
+
+func seedTaskUser(t *testing.T, db *storage.DB) int64 {
+	t.Helper()
 	userRes, err := db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES ('admin', 'hash')`)
 	if err != nil {
 		t.Fatal(err)
@@ -108,19 +154,16 @@ func seedTaskAndPinnedNode(t *testing.T, db *storage.DB, upstreamURL string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.SQL().Exec(`
+	return userID
+}
+
+func seedTask(t *testing.T, db *storage.DB, userID int64, upstreamURL string, mergeDefaultPinnedNodes int) {
+	t.Helper()
+	_, err := db.SQL().Exec(`
 		INSERT INTO conversion_tasks (
 			id, user_id, name, input_type, output_type, source_url, enabled,
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode
-		) VALUES (1, ?, 'Main', 'clash', 'surge6', ?, 1, 3600, 1, 'after_remote')`, userID, upstreamURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.SQL().Exec(`
-		INSERT INTO pinned_nodes (
-			user_id, name, protocol, server, port, parameters_json, tags_json,
-			enabled, default_include, sort_order
-		) VALUES (?, 'Pinned', 'trojan', 'pinned.example', 443, '{"password":"secret"}', '[]', 1, 1, 0)`, userID)
+		) VALUES (1, ?, 'Main', 'clash', 'surge6', ?, 1, 3600, ?, 'after_remote')`, userID, upstreamURL, mergeDefaultPinnedNodes)
 	if err != nil {
 		t.Fatal(err)
 	}

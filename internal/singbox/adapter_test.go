@@ -15,7 +15,7 @@ func TestAdapterAvailableReportsMissingBinary(t *testing.T) {
 }
 
 func TestConvertVLESSSimpleTLS(t *testing.T) {
-	out, err := New("").ConvertVLESS(convert.Node{
+	_, err := New("").ConvertVLESS(convert.Node{
 		Name:     "Edge",
 		Protocol: "vless",
 		Server:   "edge.example.com",
@@ -26,10 +26,7 @@ func TestConvertVLESSSimpleTLS(t *testing.T) {
 			"sni":  "sni.example.com",
 		},
 	})
-	if err != nil {
-		t.Fatalf("ConvertVLESS returned error: %v", err)
-	}
-	if out == "" {
-		t.Fatal("expected rendered VLESS output")
+	if !errors.Is(err, ErrStaticVLESSUnsupported) {
+		t.Fatalf("error = %v, want ErrStaticVLESSUnsupported", err)
 	}
 }

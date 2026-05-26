@@ -70,8 +70,21 @@ func (s *Service) GenerateByTaskID(taskID int64) (string, error) {
 	}
 	log.Printf("subscription task=%d stage=pinned status=ok nodes=%d merge_default=%t", task.ID, len(pinned), task.MergeDefaultPinnedNodes)
 	doc.Nodes = convert.MergeNodes(doc.Nodes, pinned, convert.MergeOptions{Mode: task.PinnedNodeOrderMode})
+	var unsupported []convert.Node
+	doc.Nodes, unsupported = convert.Surge6SupportedNodes(doc.Nodes)
+	if len(unsupported) > 0 {
+		log.Printf("subscription task=%d stage=render unsupported_nodes=%d summary=%q", task.ID, len(unsupported), unsupportedNodeSummary(unsupported))
+	}
+	if len(doc.Nodes) == 0 {
+		err := fmt.Errorf("subscription contains no Surge 6 compatible proxy nodes; unsupported nodes: %s", unsupportedNodeSummary(unsupported))
+		log.Printf("subscription task=%d stage=render status=error error=%q", task.ID, err)
+		s.recordRun(task.ID, "error", err.Error())
+		return s.cachedOrError(task.ID, err)
+	}
 	if len(doc.Groups) == 0 {
 		doc.Groups = []convert.Group{{Name: "Proxy", Type: "select", Proxies: nodeNames(doc.Nodes)}}
+	} else {
+		doc.Groups = convert.FilterGroupsForNodes(doc.Groups, doc.Nodes)
 	}
 	output := convert.RenderSurge6(doc.Nodes, doc.Groups, doc.Rules)
 	if err := s.storeCache(task.ID, output); err != nil {
@@ -275,4 +288,15 @@ func nodeNames(nodes []convert.Node) []string {
 		names = append(names, node.Name)
 	}
 	return names
+}
+
+func unsupportedNodeSummary(nodes []convert.Node) string {
+	if len(nodes) == 0 {
+		return "none"
+	}
+	values := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		values = append(values, fmt.Sprintf("%s(%s)", node.Name, node.Protocol))
+	}
+	return strings.Join(limitStrings(values, 5), ", ")
 }

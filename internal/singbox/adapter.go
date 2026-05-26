@@ -9,6 +9,7 @@ import (
 )
 
 var ErrUnavailable = errors.New("sing-box unavailable")
+var ErrStaticVLESSUnsupported = errors.New("vless cannot be statically converted to a Surge proxy")
 
 type Adapter struct {
 	Path string
@@ -35,5 +36,5 @@ func (a *Adapter) ConvertVLESS(node convert.Node) (string, error) {
 	if node.Params["uuid"] == "" {
 		return "", fmt.Errorf("vless uuid is required")
 	}
-	return convert.RenderSurge6([]convert.Node{node}, nil, nil), nil
+	return "", ErrStaticVLESSUnsupported
 }
