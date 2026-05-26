@@ -63,6 +63,76 @@ func TestListTasksReturnsEmptySlice(t *testing.T) {
 	}
 }
 
+func TestUpdateTaskChangesEditableFields(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+	task, err := service.Create(userID, CreateInput{Name: "Main", SourceURL: "https://example.com/a.yaml", RefreshIntervalSeconds: 3600})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	enabled := false
+	mergeDefaults := false
+	next, err := service.Update(userID, task.ID, UpdateInput{
+		Name:                    stringPtr("Updated"),
+		SourceURL:               stringPtr("https://example.com/b.yaml"),
+		RefreshIntervalSeconds:  intPtr(7200),
+		Enabled:                 &enabled,
+		MergeDefaultPinnedNodes: &mergeDefaults,
+	})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if next.Name != "Updated" || next.SourceURL != "https://example.com/b.yaml" || next.RefreshIntervalSeconds != 7200 || next.Enabled || next.MergeDefaultPinnedNodes {
+		t.Fatalf("unexpected updated task: %#v", next)
+	}
+}
+
+func TestDeleteTaskRemovesTaskAndToken(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+	task, err := service.Create(userID, CreateInput{Name: "Main", SourceURL: "https://example.com/a.yaml", RefreshIntervalSeconds: 3600})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	if err := service.Delete(userID, task.ID); err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+	tasks, err := service.List(userID)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("unexpected tasks after delete: %#v", tasks)
+	}
+	var tokens int
+	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM subscription_tokens WHERE task_id = ?`, task.ID).Scan(&tokens); err != nil {
+		t.Fatal(err)
+	}
+	if tokens != 0 {
+		t.Fatalf("tokens = %d, want 0", tokens)
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
 func seedUser(t *testing.T, db *storage.DB) int64 {
 	t.Helper()
 	res, err := db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES ('admin', 'hash')`)

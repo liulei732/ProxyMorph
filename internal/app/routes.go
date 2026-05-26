@@ -16,7 +16,7 @@ import (
 
 func (a *App) routes() {
 	authHandler := auth.Handler{Service: a.authSvc}
-	taskHandler := tasks.Handler{Service: a.taskSvc}
+	taskHandler := tasks.Handler{Service: a.taskSvc, Subscription: a.subSvc}
 	nodeHandler := nodes.Handler{Service: a.nodeSvc}
 	subHandler := subscription.Handler{Service: a.subSvc}
 	a.mux.HandleFunc("/healthz", httpapi.Method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
@@ -35,6 +35,7 @@ func (a *App) routes() {
 			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
 	})))
+	a.mux.Handle("/api/tasks/", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(taskHandler.ServeTask)))
 	a.mux.Handle("/api/nodes", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(httpapi.Method(http.MethodGet, nodeHandler.List))))
 	a.mux.Handle("/api/nodes/import", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(httpapi.Method(http.MethodPost, nodeHandler.Import))))
 	a.mux.HandleFunc("/sub/", httpapi.Method(http.MethodGet, subHandler.ServeToken))

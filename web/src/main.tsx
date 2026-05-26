@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { AlertCircle, Copy, KeyRound, Plus, RefreshCw, Server, ShieldCheck } from "lucide-react";
+import { AlertCircle, Copy, Eye, KeyRound, Pencil, Play, Plus, RefreshCw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
 import { api } from "./api";
 import { getInitialLanguage, languageStorageKey, languages, translations, type Language } from "./i18n";
 import "./styles.css";
@@ -12,7 +12,11 @@ type Task = {
   OutputType: string;
   SourceURL: string;
   Enabled: boolean;
+  RefreshIntervalSeconds: number;
+  MergeDefaultPinnedNodes: boolean;
   SubscriptionURL: string;
+  LastSuccessAt?: string | null;
+  LastErrorAt?: string | null;
   LastErrorMessage: string;
 };
 
@@ -34,6 +38,9 @@ function App() {
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [nodes, setNodes] = React.useState<PinnedNode[]>([]);
   const [error, setError] = React.useState("");
+  const [toast, setToast] = React.useState("");
+  const [busyTaskID, setBusyTaskID] = React.useState<number | null>(null);
+  const [previewContent, setPreviewContent] = React.useState("");
   const t = translations[language];
 
   function changeLanguage(nextLanguage: Language) {
@@ -66,13 +73,19 @@ function App() {
     };
   }, []);
 
-  async function refresh() {
+  function notify(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 2600);
+  }
+
+  async function refresh(showToast = false) {
     const [nextTasks, nextNodes] = await Promise.all([
       api<Task[]>("/api/tasks").catch(() => []),
       api<PinnedNode[]>("/api/nodes").catch(() => []),
     ]);
     setTasks(nextTasks);
     setNodes(nextNodes);
+    if (showToast) notify(t.refreshed);
   }
 
   async function login(event: React.FormEvent<HTMLFormElement>) {
@@ -98,17 +111,82 @@ function App() {
       await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
       event.currentTarget.reset();
       await refresh();
+      notify(t.taskList.saved);
     } catch {
       setError(t.createFailed);
+      notify(t.createFailed);
     }
   }
 
   async function importNodes(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const payload = Object.fromEntries(new FormData(event.currentTarget));
-    await api("/api/nodes/import", { method: "POST", body: JSON.stringify(payload) });
-    event.currentTarget.reset();
-    await refresh();
+    try {
+      const payload = Object.fromEntries(new FormData(event.currentTarget));
+      await api("/api/nodes/import", { method: "POST", body: JSON.stringify(payload) });
+      event.currentTarget.reset();
+      await refresh();
+      notify(t.refreshed);
+    } catch {
+      notify(t.createFailed);
+    }
+  }
+
+  async function updateTask(id: number, input: Partial<Task> & { refresh_interval_seconds?: number; merge_default_pinned_nodes?: boolean }) {
+    setBusyTaskID(id);
+    try {
+      await api(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+      await refresh();
+      notify(t.taskList.saved);
+    } catch {
+      notify(t.taskList.saveFailed);
+    } finally {
+      setBusyTaskID(null);
+    }
+  }
+
+  async function deleteTask(id: number) {
+    if (!window.confirm(t.confirmDelete)) return;
+    setBusyTaskID(id);
+    try {
+      await api(`/api/tasks/${id}`, { method: "DELETE" });
+      await refresh();
+      notify(t.taskList.deleted);
+    } catch {
+      notify(t.taskList.deleteFailed);
+    } finally {
+      setBusyTaskID(null);
+    }
+  }
+
+  async function generateTask(id: number) {
+    setBusyTaskID(id);
+    try {
+      const result = await api<{ content: string }>(`/api/tasks/${id}/generate`, { method: "POST" });
+      setPreviewContent(result.content);
+      setTab("preview");
+      await refresh();
+      notify(t.taskList.generated);
+    } catch {
+      await refresh();
+      notify(t.taskList.generateFailed);
+    } finally {
+      setBusyTaskID(null);
+    }
+  }
+
+  async function loadPreview(id: number) {
+    setBusyTaskID(id);
+    try {
+      const result = await api<{ content: string }>(`/api/tasks/${id}/preview`);
+      setPreviewContent(result.content);
+      setTab("preview");
+      await refresh();
+      notify(t.preview.loaded);
+    } catch {
+      notify(t.preview.loadFailed);
+    } finally {
+      setBusyTaskID(null);
+    }
   }
 
   if (checkingSession) {
@@ -166,9 +244,10 @@ function App() {
           </div>
           <div className="top-actions">
             <LanguageSwitch language={language} onChange={changeLanguage} />
-            <button onClick={refresh}><RefreshCw size={16} /> {t.refresh}</button>
+            <button onClick={() => refresh(true)}><RefreshCw size={16} /> {t.refresh}</button>
           </div>
         </header>
+        {toast && <div className="toast">{toast}</div>}
 
         {tab === "overview" && (
           <section className="stack">
@@ -177,7 +256,7 @@ function App() {
               <Metric icon={<ShieldCheck />} value={nodes.length} label={t.metrics.pinnedNodes} />
               <Metric icon={<AlertCircle />} value={errors.length} label={t.metrics.errors} />
             </div>
-            <TaskList tasks={tasks} t={t} />
+            <TaskList tasks={tasks} t={t} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} />
           </section>
         )}
 
@@ -190,7 +269,7 @@ function App() {
               <button><Plus size={16} /> {t.forms.create}</button>
             </form>
             {error && <p className="error">{error}</p>}
-            <TaskList tasks={tasks} t={t} />
+            <TaskList tasks={tasks} t={t} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} />
           </section>
         )}
 
@@ -204,7 +283,7 @@ function App() {
           </section>
         )}
 
-        {tab === "preview" && <section className="panel"><h3>{t.preview.title}</h3><pre>{t.preview.empty}</pre></section>}
+        {tab === "preview" && <section className="panel"><h3>{t.preview.title}</h3><pre>{previewContent || t.preview.empty}</pre></section>}
         {tab === "settings" && <section className="panel grid-form"><label>{t.settings.cachePolicy}<input readOnly value={t.settings.cachePolicyValue} /></label><label>{t.settings.vlessHelper}<input readOnly value={t.settings.vlessHelperValue} /></label></section>}
       </section>
     </main>
@@ -233,28 +312,123 @@ function Metric({ icon, value, label }: { icon: React.ReactNode; value: number; 
   );
 }
 
-function TaskList({ tasks, t }: { tasks: Task[]; t: typeof translations[Language] }) {
+function TaskList({
+  tasks,
+  t,
+  busyTaskID,
+  onCopy,
+  onUpdate,
+  onDelete,
+  onGenerate,
+  onPreview,
+}: {
+  tasks: Task[];
+  t: typeof translations[Language];
+  busyTaskID: number | null;
+  onCopy: (message: string) => void;
+  onUpdate: (id: number, input: { name?: string; source_url?: string; refresh_interval_seconds?: number; enabled?: boolean; merge_default_pinned_nodes?: boolean }) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+  onGenerate: (id: number) => Promise<void>;
+  onPreview: (id: number) => Promise<void>;
+}) {
   return (
     <section className="panel">
       <h3>{t.taskList.title}</h3>
       <div className="list">
         {tasks.length ? tasks.map((task) => (
-          <div className="row" key={task.ID}>
-            <div>
-              <strong>{task.Name}</strong>
-              <span>{task.SourceURL}</span>
-            </div>
-            <span className="badge">{`${task.InputType} ${t.taskList.route} ${task.OutputType}`}</span>
-            <span className={task.LastErrorMessage ? "status-error" : ""}>{task.LastErrorMessage ? t.taskList.failed : task.Enabled ? t.taskList.enabled : t.taskList.disabled}</span>
-            <button onClick={() => navigator.clipboard.writeText(absoluteSubscriptionURL(task.SubscriptionURL))}>
-              <Copy size={15} /> {t.taskList.copy}
-            </button>
-            {task.LastErrorMessage && <p className="row-error">{task.LastErrorMessage}</p>}
-          </div>
+          <TaskRow key={task.ID} task={task} t={t} busy={busyTaskID === task.ID} onCopy={onCopy} onUpdate={onUpdate} onDelete={onDelete} onGenerate={onGenerate} onPreview={onPreview} />
         )) : <p className="muted">{t.taskList.empty}</p>}
       </div>
     </section>
   );
+}
+
+function TaskRow({
+  task,
+  t,
+  busy,
+  onCopy,
+  onUpdate,
+  onDelete,
+  onGenerate,
+  onPreview,
+}: {
+  task: Task;
+  t: typeof translations[Language];
+  busy: boolean;
+  onCopy: (message: string) => void;
+  onUpdate: (id: number, input: { name?: string; source_url?: string; refresh_interval_seconds?: number; enabled?: boolean; merge_default_pinned_nodes?: boolean }) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+  onGenerate: (id: number) => Promise<void>;
+  onPreview: (id: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const status = taskStatus(task, busy, t);
+
+  async function copyURL() {
+    await navigator.clipboard.writeText(absoluteSubscriptionURL(task.SubscriptionURL));
+    onCopy(t.copied);
+  }
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await onUpdate(task.ID, {
+      name: String(form.get("name") || ""),
+      source_url: String(form.get("source_url") || ""),
+      refresh_interval_seconds: Number(form.get("refresh_interval_seconds") || 3600),
+      enabled: form.get("enabled") === "on",
+      merge_default_pinned_nodes: form.get("merge_default_pinned_nodes") === "on",
+    });
+    setEditing(false);
+  }
+
+  return (
+    <div className="task-card">
+      <div className="task-main">
+        <div>
+          <strong>{task.Name}</strong>
+          <span>{task.SourceURL}</span>
+        </div>
+        <span className="badge">{`${task.InputType} ${t.taskList.route} ${task.OutputType}`}</span>
+        <span className={status.className}>{status.label}</span>
+        <div className="task-actions">
+          <button type="button" disabled={busy} onClick={() => onGenerate(task.ID)}><Play size={15} /> {busy ? t.taskList.running : t.taskList.generate}</button>
+          <button type="button" disabled={busy} onClick={() => onPreview(task.ID)}><Eye size={15} /> {t.taskList.preview}</button>
+          <button type="button" onClick={copyURL}><Copy size={15} /> {t.taskList.copy}</button>
+          <button type="button" onClick={() => setEditing(!editing)}><Pencil size={15} /> {editing ? t.forms.cancel : t.taskList.edit}</button>
+          <button type="button" className="danger-button" disabled={busy} onClick={() => onDelete(task.ID)}><Trash2 size={15} /> {t.taskList.delete}</button>
+        </div>
+        <p className="task-meta">{task.LastSuccessAt ? `${t.taskList.lastSuccess}: ${formatTime(task.LastSuccessAt)}` : t.taskList.idle}{task.LastErrorAt ? ` · ${t.taskList.lastError}: ${formatTime(task.LastErrorAt)}` : ""}</p>
+        {task.LastErrorMessage && <p className="row-error">{task.LastErrorMessage}</p>}
+      </div>
+      {editing && (
+        <form className="edit-form" onSubmit={save}>
+          <label>{t.forms.name}<input name="name" defaultValue={task.Name} /></label>
+          <label>{t.forms.clashURL}<input name="source_url" defaultValue={task.SourceURL} /></label>
+          <label>{t.forms.refreshSeconds}<input name="refresh_interval_seconds" type="number" defaultValue={task.RefreshIntervalSeconds} /></label>
+          <label className="check-label"><input name="enabled" type="checkbox" defaultChecked={task.Enabled} /> {t.forms.enabled}</label>
+          <label className="check-label"><input name="merge_default_pinned_nodes" type="checkbox" defaultChecked={task.MergeDefaultPinnedNodes} /> {t.forms.mergeDefaults}</label>
+          <button disabled={busy}><Save size={15} /> {busy ? t.saving : t.forms.save}</button>
+          <button type="button" onClick={() => setEditing(false)}><X size={15} /> {t.forms.cancel}</button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function taskStatus(task: Task, busy: boolean, t: typeof translations[Language]) {
+  if (busy) return { label: t.taskList.running, className: "status-running" };
+  if (!task.Enabled) return { label: t.taskList.disabled, className: "" };
+  if (task.LastErrorMessage) return { label: t.taskList.failed, className: "status-error" };
+  if (task.LastSuccessAt) return { label: t.taskList.success, className: "status-success" };
+  return { label: t.taskList.idle, className: "" };
+}
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 function NodeList({ nodes, t }: { nodes: PinnedNode[]; t: typeof translations[Language] }) {
