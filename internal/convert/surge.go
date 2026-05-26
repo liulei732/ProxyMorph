@@ -1,16 +1,34 @@
 package convert
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 )
 
+var ErrVLESSRendererRequired = errors.New("vless renderer required")
+
+type RenderOptions struct {
+	VLESSRenderer func(Node) (string, error)
+}
+
 func RenderSurge6(nodes []Node, groups []Group, rules []string) string {
+	output, _ := RenderSurge6WithOptions(nodes, groups, rules, RenderOptions{
+		VLESSRenderer: renderSimpleVLESS,
+	})
+	return output
+}
+
+func RenderSurge6WithOptions(nodes []Node, groups []Group, rules []string, opts RenderOptions) (string, error) {
 	var b strings.Builder
 	b.WriteString("[Proxy]\n")
 	for _, node := range nodes {
-		b.WriteString(renderNode(node))
+		rendered, err := renderNodeWithOptions(node, opts)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(rendered)
 		b.WriteString("\n")
 	}
 	b.WriteString("\n[Proxy Group]\n")
@@ -42,19 +60,29 @@ func RenderSurge6(nodes []Node, groups []Group, rules []string) string {
 		b.WriteString(rule)
 		b.WriteString("\n")
 	}
-	return b.String()
+	return b.String(), nil
 }
 
 func renderNode(node Node) string {
+	rendered, _ := renderNodeWithOptions(node, RenderOptions{VLESSRenderer: renderSimpleVLESS})
+	return rendered
+}
+
+func renderNodeWithOptions(node Node, opts RenderOptions) (string, error) {
 	switch node.Protocol {
 	case "ss":
-		return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=%s", node.Name, node.Server, node.Port, node.Params["cipher"], node.Params["password"])
+		return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=%s", node.Name, node.Server, node.Port, node.Params["cipher"], node.Params["password"]), nil
 	case "trojan":
 		parts := []string{fmt.Sprintf("%s = trojan, %s, %d, password=%s", node.Name, node.Server, node.Port, node.Params["password"])}
 		if sni := node.Params["sni"]; sni != "" {
 			parts = append(parts, "sni="+sni)
 		}
-		return strings.Join(parts, ", ")
+		return strings.Join(parts, ", "), nil
+	case "vless":
+		if opts.VLESSRenderer == nil {
+			return "", ErrVLESSRendererRequired
+		}
+		return opts.VLESSRenderer(node)
 	default:
 		keys := make([]string, 0, len(node.Params))
 		for key := range node.Params {
@@ -65,6 +93,25 @@ func renderNode(node Node) string {
 		for _, key := range keys {
 			parts = append(parts, key+"="+node.Params[key])
 		}
-		return strings.Join(parts, ", ")
+		return strings.Join(parts, ", "), nil
 	}
+}
+
+func renderSimpleVLESS(node Node) (string, error) {
+	parts := []string{
+		fmt.Sprintf("%s = vless, %s, %d, username=%s", node.Name, node.Server, node.Port, node.Params["uuid"]),
+	}
+	if tls := node.Params["tls"]; tls != "" {
+		parts = append(parts, "tls=true")
+	}
+	if sni := node.Params["sni"]; sni != "" {
+		parts = append(parts, "sni="+sni)
+	}
+	if network := node.Params["network"]; network != "" {
+		parts = append(parts, "network="+network)
+	}
+	if wsPath := node.Params["ws_path"]; wsPath != "" {
+		parts = append(parts, "ws-path="+wsPath)
+	}
+	return strings.Join(parts, ", "), nil
 }

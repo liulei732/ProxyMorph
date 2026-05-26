@@ -20,6 +20,8 @@ func ParseURI(raw string) (convert.Node, error) {
 		return parseSS(u)
 	case "trojan":
 		return parseTrojan(u)
+	case "vless":
+		return parseVLESS(u)
 	default:
 		return convert.Node{}, fmt.Errorf("unsupported proxy URI scheme %q", u.Scheme)
 	}
@@ -71,6 +73,40 @@ func parseTrojan(u *url.URL) (convert.Node, error) {
 		Params:   params,
 		Pinned:   true,
 	}, nil
+}
+
+func parseVLESS(u *url.URL) (convert.Node, error) {
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		return convert.Node{}, fmt.Errorf("invalid vless port: %w", err)
+	}
+	name, _ := url.PathUnescape(u.Fragment)
+	query := u.Query()
+	params := map[string]string{"uuid": u.User.Username()}
+	if security := query.Get("security"); security == "tls" || security == "reality" {
+		params["tls"] = security
+	}
+	copyParam(params, "sni", query.Get("sni"))
+	copyParam(params, "flow", query.Get("flow"))
+	copyParam(params, "network", query.Get("type"))
+	copyParam(params, "ws_path", query.Get("path"))
+	copyParam(params, "grpc_service_name", query.Get("serviceName"))
+	copyParam(params, "reality_public_key", query.Get("pbk"))
+	copyParam(params, "reality_short_id", query.Get("sid"))
+	return convert.Node{
+		Name:     fallbackName(name, u.Hostname()),
+		Protocol: "vless",
+		Server:   u.Hostname(),
+		Port:     port,
+		Params:   params,
+		Pinned:   true,
+	}, nil
+}
+
+func copyParam(params map[string]string, key, value string) {
+	if value != "" {
+		params[key] = value
+	}
 }
 
 func decodeBase64(value string) (string, error) {
