@@ -144,6 +144,17 @@ func renderNodeWithOptions(node Node, opts RenderOptions) (string, error) {
 		if sni := node.Params["sni"]; sni != "" {
 			parts = append(parts, "sni="+sni)
 		}
+		appendSharedSurgeParams(&parts, node)
+		return strings.Join(parts, ", "), nil
+	case "vmess":
+		parts := []string{fmt.Sprintf("%s = vmess, %s, %d, username=%s", node.Name, node.Server, node.Port, node.Params["uuid"])}
+		if tls := node.Params["tls"]; tls != "" && tls != "false" {
+			parts = append(parts, "tls=true")
+		}
+		if sni := node.Params["sni"]; sni != "" {
+			parts = append(parts, "sni="+sni)
+		}
+		appendSharedSurgeParams(&parts, node)
 		return strings.Join(parts, ", "), nil
 	case "vless":
 		if opts.VLESSRenderer == nil {
@@ -161,6 +172,21 @@ func renderNodeWithOptions(node Node, opts RenderOptions) (string, error) {
 			parts = append(parts, key+"="+node.Params[key])
 		}
 		return strings.Join(parts, ", "), nil
+	}
+}
+
+func appendSharedSurgeParams(parts *[]string, node Node) {
+	if node.Params["skip_cert_verify"] == "true" {
+		*parts = append(*parts, "skip-cert-verify=true")
+	}
+	if node.Params["network"] == "ws" {
+		*parts = append(*parts, "ws=true")
+		if wsPath := node.Params["ws_path"]; wsPath != "" {
+			*parts = append(*parts, "ws-path="+wsPath)
+		}
+		if wsHost := node.Params["ws_host"]; wsHost != "" {
+			*parts = append(*parts, "ws-headers=Host:"+wsHost)
+		}
 	}
 }
 

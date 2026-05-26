@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -20,11 +21,61 @@ func ParseURI(raw string) (convert.Node, error) {
 		return parseSS(u)
 	case "trojan":
 		return parseTrojan(u)
+	case "vmess":
+		return parseVMess(u)
 	case "vless":
 		return parseVLESS(u)
 	default:
 		return convert.Node{}, fmt.Errorf("unsupported proxy URI scheme %q", u.Scheme)
 	}
+}
+
+func parseVMess(u *url.URL) (convert.Node, error) {
+	encoded := strings.TrimPrefix(u.String(), "vmess://")
+	decoded, err := decodeBase64(encoded)
+	if err != nil {
+		return convert.Node{}, err
+	}
+	var payload struct {
+		Name    string `json:"ps"`
+		Server  string `json:"add"`
+		Port    string `json:"port"`
+		UUID    string `json:"id"`
+		AlterID any    `json:"aid"`
+		Cipher  string `json:"scy"`
+		Network string `json:"net"`
+		Type    string `json:"type"`
+		Host    string `json:"host"`
+		Path    string `json:"path"`
+		TLS     string `json:"tls"`
+		SNI     string `json:"sni"`
+	}
+	if err := json.Unmarshal([]byte(decoded), &payload); err != nil {
+		return convert.Node{}, fmt.Errorf("invalid vmess payload: %w", err)
+	}
+	port, err := strconv.Atoi(payload.Port)
+	if err != nil {
+		return convert.Node{}, fmt.Errorf("invalid vmess port: %w", err)
+	}
+	params := map[string]string{
+		"uuid":       payload.UUID,
+		"alter_id":   anyToString(payload.AlterID, "0"),
+		"cipher":     fallbackValue(payload.Cipher, "auto"),
+		"vmess_type": fallbackValue(payload.Type, "none"),
+	}
+	copyParam(params, "tls", payload.TLS)
+	copyParam(params, "sni", payload.SNI)
+	copyParam(params, "network", payload.Network)
+	copyParam(params, "ws_path", payload.Path)
+	copyParam(params, "ws_host", payload.Host)
+	return convert.Node{
+		Name:     fallbackName(payload.Name, payload.Server),
+		Protocol: "vmess",
+		Server:   payload.Server,
+		Port:     port,
+		Params:   params,
+		Pinned:   true,
+	}, nil
 }
 
 func parseSS(u *url.URL) (convert.Node, error) {
@@ -125,4 +176,25 @@ func fallbackName(name, host string) string {
 		return name
 	}
 	return host
+}
+
+func fallbackValue(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
+}
+
+func anyToString(value any, fallback string) string {
+	switch v := value.(type) {
+	case string:
+		if v != "" {
+			return v
+		}
+	case float64:
+		return strconv.Itoa(int(v))
+	case int:
+		return strconv.Itoa(v)
+	}
+	return fallback
 }

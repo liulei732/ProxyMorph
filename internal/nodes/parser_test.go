@@ -41,6 +41,31 @@ func TestParseVLESSURI(t *testing.T) {
 	}
 }
 
+func TestParseVMessURI(t *testing.T) {
+	node, err := ParseURI("vmess://eyJwcyI6IkVkZ2UiLCJhZGQiOiJ2bWVzcy5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6ImY0N2FjMTBiLTU4Y2MtNDM3Mi1hNTY3LTBlMDJiMmMzZDQ3OSIsInRscyI6InRscyIsInNuaSI6InNuaS5leGFtcGxlLmNvbSIsIm5ldCI6IndzIiwicGF0aCI6Ii9wcm94eSIsImhvc3QiOiJob3N0LmV4YW1wbGUuY29tIn0=")
+	if err != nil {
+		t.Fatalf("ParseURI returned error: %v", err)
+	}
+	if node.Name != "Edge" || node.Protocol != "vmess" || node.Server != "vmess.example.com" || node.Port != 443 {
+		t.Fatalf("unexpected node: %#v", node)
+	}
+	for key, want := range map[string]string{
+		"uuid":       "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+		"tls":        "tls",
+		"sni":        "sni.example.com",
+		"network":    "ws",
+		"ws_path":    "/proxy",
+		"ws_host":    "host.example.com",
+		"cipher":     "auto",
+		"alter_id":   "0",
+		"vmess_type": "none",
+	} {
+		if node.Params[key] != want {
+			t.Fatalf("param %s = %q, want %q; params=%#v", key, node.Params[key], want, node.Params)
+		}
+	}
+}
+
 func TestParseRejectsUnsupportedURI(t *testing.T) {
 	if _, err := ParseURI("http://example.com"); err == nil {
 		t.Fatal("expected unsupported URI error")

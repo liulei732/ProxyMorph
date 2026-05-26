@@ -40,6 +40,7 @@ func TestGenerateMergesPinnedNodes(t *testing.T) {
 func TestGenerateSupportsBase64URIListSubscriptions(t *testing.T) {
 	uriList := strings.Join([]string{
 		"ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@remote.example:8388#Remote",
+		"vmess://eyJwcyI6IkxlZ2FjeSIsImFkZCI6InZtZXNzLmV4YW1wbGUuY29tIiwicG9ydCI6IjQ0MyIsImlkIjoiZjQ3YWMxMGItNThjYy00MzcyLWE1NjctMGUwMmIyYzNkNDc5IiwidGxzIjoidGxzIiwic25pIjoic25pLmV4YW1wbGUuY29tIiwibmV0Ijoid3MiLCJwYXRoIjoiL3Byb3h5IiwiaG9zdCI6Imhvc3QuZXhhbXBsZS5jb20ifQ==",
 		"vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@edge.example:443?security=tls&sni=edge.example&type=ws&path=%2Fproxy#Edge",
 	}, "\n")
 	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
@@ -64,7 +65,10 @@ func TestGenerateSupportsBase64URIListSubscriptions(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Remote = ss, remote.example, 8388",
-		"Proxy = select, Remote, Pinned",
+		"Legacy = vmess, vmess.example.com, 443",
+		"username=f47ac10b-58cc-4372-a567-0e02b2c3d479",
+		"ws=true",
+		"Proxy = select, Remote, Legacy, Pinned",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
@@ -101,7 +105,7 @@ func TestGenerateFailsWhenSubscriptionOnlyContainsVLESS(t *testing.T) {
 
 func TestGenerateSkipsUnsupportedURIListEntries(t *testing.T) {
 	uriList := strings.Join([]string{
-		"vmess://eyJwcyI6IkxlZ2FjeSIsImFkZCI6ImxlZ2FjeS5leGFtcGxlIiwicG9ydCI6IjQ0MyJ9",
+		"http://legacy.example",
 		"ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@remote.example:8388#Remote",
 	}, "\n")
 	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
@@ -113,7 +117,7 @@ func TestGenerateSkipsUnsupportedURIListEntries(t *testing.T) {
 	if len(doc.Nodes) != 1 || doc.Nodes[0].Name != "Remote" {
 		t.Fatalf("unexpected nodes: %#v", doc.Nodes)
 	}
-	if info.Skipped != 1 || !strings.Contains(info.SkipSummary, "scheme=vmess") {
+	if info.Skipped != 1 || !strings.Contains(info.SkipSummary, "scheme=http") {
 		t.Fatalf("unexpected parse info: %#v", info)
 	}
 }

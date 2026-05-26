@@ -1,6 +1,10 @@
 package convert
 
-import "gopkg.in/yaml.v3"
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
 
 type Document struct {
 	Nodes  []Node
@@ -38,23 +42,36 @@ func ParseClash(data []byte) (Document, error) {
 			Port:     intValue(proxy["port"]),
 			Params:   map[string]string{},
 		}
-		for _, key := range []string{"cipher", "password", "sni", "network", "ws-opts"} {
+		for _, key := range []string{"cipher", "password", "sni", "network"} {
 			if value := stringValue(proxy[key]); value != "" {
 				node.Params[key] = value
 			}
 		}
-		if node.Protocol == "vless" {
-			copyClashParam(node.Params, "uuid", proxy["uuid"])
-			copyClashParam(node.Params, "tls", proxy["tls"])
-			copyClashParam(node.Params, "sni", proxy["servername"])
-			copyClashParam(node.Params, "flow", proxy["flow"])
+		if node.Protocol == "trojan" || node.Protocol == "vless" || node.Protocol == "vmess" {
+			copyBoolParam(node.Params, "skip_cert_verify", proxy["skip-cert-verify"])
 			copyClashParam(node.Params, "network", proxy["network"])
 			if wsOpts, ok := proxy["ws-opts"].(map[string]any); ok {
 				copyClashParam(node.Params, "ws_path", wsOpts["path"])
+				if headers, ok := wsOpts["headers"].(map[string]any); ok {
+					copyClashParam(node.Params, "ws_host", headers["Host"])
+				}
 			}
+		}
+		if node.Protocol == "vless" || node.Protocol == "vmess" {
+			copyClashParam(node.Params, "uuid", proxy["uuid"])
+			copyClashParam(node.Params, "tls", proxy["tls"])
+			copyClashParam(node.Params, "sni", proxy["servername"])
 			if grpcOpts, ok := proxy["grpc-opts"].(map[string]any); ok {
 				copyClashParam(node.Params, "grpc_service_name", grpcOpts["grpc-service-name"])
 			}
+		}
+		if node.Protocol == "vless" {
+			copyClashParam(node.Params, "flow", proxy["flow"])
+		}
+		if node.Protocol == "vmess" {
+			copyClashParam(node.Params, "alter_id", proxy["alterId"])
+			copyClashParam(node.Params, "cipher", proxy["cipher"])
+			copyClashParam(node.Params, "vmess_type", proxy["type"])
 		}
 		doc.Nodes = append(doc.Nodes, node)
 	}
@@ -62,6 +79,12 @@ func ParseClash(data []byte) (Document, error) {
 		doc.Groups = append(doc.Groups, Group{Name: group.Name, Type: group.Type, Proxies: group.Proxies})
 	}
 	return doc, nil
+}
+
+func copyBoolParam(params map[string]string, key string, value any) {
+	if v, ok := value.(bool); ok && v {
+		params[key] = "true"
+	}
 }
 
 func copyClashParam(params map[string]string, key string, value any) {
@@ -74,6 +97,12 @@ func copyClashParam(params map[string]string, key string, value any) {
 		if v {
 			params[key] = "tls"
 		}
+	case int:
+		params[key] = fmt.Sprintf("%d", v)
+	case int64:
+		params[key] = fmt.Sprintf("%d", v)
+	case float64:
+		params[key] = fmt.Sprintf("%.0f", v)
 	}
 }
 

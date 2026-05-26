@@ -21,6 +21,12 @@ proxies:
     port: 443
     password: secret
     sni: edge.example.com
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: /trojan
+      headers:
+        Host: trojan-host.example.com
 proxy-groups:
   - name: "Proxy"
     type: select
@@ -42,6 +48,10 @@ rules:
 		"[Proxy]",
 		"HK 1 = ss, hk.example.com, 8388",
 		"Edge = trojan, edge.example.com, 443",
+		"skip-cert-verify=true",
+		"ws=true",
+		"ws-path=/trojan",
+		"ws-headers=Host:trojan-host.example.com",
 		"[Proxy Group]",
 		"Proxy = select, HK 1",
 		"[Rule]",
@@ -63,6 +73,7 @@ proxies:
     port: 443
     uuid: f47ac10b-58cc-4372-a567-0e02b2c3d479
     tls: true
+    skip-cert-verify: true
     servername: sni.example.com
     flow: xtls-rprx-vision
     network: ws
@@ -84,6 +95,49 @@ rules:
 	}
 	if node.Params["network"] != "ws" || node.Params["ws_path"] != "/proxy" {
 		t.Fatalf("unexpected vless transport params: %#v", node.Params)
+	}
+}
+
+func TestParseClashAndRenderVMessWebSocketTLS(t *testing.T) {
+	input := []byte(`
+proxies:
+  - name: "VMess WS"
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: f47ac10b-58cc-4372-a567-0e02b2c3d479
+    tls: true
+    skip-cert-verify: true
+    servername: sni.example.com
+    network: ws
+    ws-opts:
+      path: /proxy
+      headers:
+        Host: host.example.com
+rules:
+  - FINAL,Proxy
+`)
+	doc, err := ParseClash(input)
+	if err != nil {
+		t.Fatalf("ParseClash returned error: %v", err)
+	}
+	if len(doc.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(doc.Nodes))
+	}
+	out := RenderSurge6(doc.Nodes, doc.Groups, doc.Rules)
+	for _, want := range []string{
+		"VMess WS = vmess, vmess.example.com, 443",
+		"username=f47ac10b-58cc-4372-a567-0e02b2c3d479",
+		"tls=true",
+		"sni=sni.example.com",
+		"skip-cert-verify=true",
+		"ws=true",
+		"ws-path=/proxy",
+		"ws-headers=Host:host.example.com",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
 	}
 }
 
