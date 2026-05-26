@@ -1,7 +1,9 @@
 package subscription
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -38,7 +40,7 @@ func (s *Service) GenerateByTaskID(taskID int64) (string, error) {
 	if err != nil {
 		return s.cachedOrError(task.ID, err)
 	}
-	doc, err := convert.ParseClash(content)
+	doc, err := parseSubscription(content)
 	if err != nil {
 		s.recordRun(task.ID, "error", err.Error())
 		return s.cachedOrError(task.ID, err)
@@ -108,6 +110,58 @@ func (s *Service) effectivePinnedNodes(task storage.ConversionTask) ([]convert.N
 		return nil, nil
 	}
 	return s.nodes.EffectiveDefaultNodes(task.UserID)
+}
+
+func parseSubscription(content []byte) (convert.Document, error) {
+	doc, clashErr := convert.ParseClash(content)
+	if clashErr == nil && len(doc.Nodes) > 0 {
+		return doc, nil
+	}
+	if uriDoc, uriErr := parseURIListSubscription(content); uriErr == nil {
+		return uriDoc, nil
+	}
+	if clashErr != nil {
+		return convert.Document{}, clashErr
+	}
+	return convert.Document{}, fmt.Errorf("subscription contains no supported proxy nodes")
+}
+
+func parseURIListSubscription(content []byte) (convert.Document, error) {
+	decoded := bytes.TrimSpace(content)
+	if decodedContent, err := decodeSubscriptionBase64(decoded); err == nil {
+		decoded = bytes.TrimSpace(decodedContent)
+	}
+	lines := bytes.Split(decoded, []byte{'\n'})
+	doc := convert.Document{}
+	for _, line := range lines {
+		raw := string(bytes.TrimSpace(line))
+		if raw == "" {
+			continue
+		}
+		node, err := nodes.ParseURI(raw)
+		if err != nil {
+			return convert.Document{}, err
+		}
+		doc.Nodes = append(doc.Nodes, node)
+	}
+	if len(doc.Nodes) == 0 {
+		return convert.Document{}, fmt.Errorf("subscription contains no supported proxy URIs")
+	}
+	return doc, nil
+}
+
+func decodeSubscriptionBase64(content []byte) ([]byte, error) {
+	encoded := string(content)
+	if decoded, err := base64.StdEncoding.DecodeString(encoded); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(encoded); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := base64.URLEncoding.DecodeString(encoded); err == nil {
+		return decoded, nil
+	}
+	return base64.RawURLEncoding.DecodeString(encoded)
 }
 
 func (s *Service) storeCache(taskID int64, content string) error {

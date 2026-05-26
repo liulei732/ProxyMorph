@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"encoding/base64"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -33,6 +34,42 @@ func TestGenerateMergesPinnedNodes(t *testing.T) {
 	}
 	if !strings.Contains(output, "Remote = ss") || !strings.Contains(output, "Pinned = trojan") {
 		t.Fatalf("expected remote and pinned nodes in output:\n%s", output)
+	}
+}
+
+func TestGenerateSupportsBase64URIListSubscriptions(t *testing.T) {
+	uriList := strings.Join([]string{
+		"ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@remote.example:8388#Remote",
+		"vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@edge.example:443?security=tls&sni=edge.example&type=ws&path=%2Fproxy#Edge",
+	}, "\n")
+	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskAndPinnedNode(t, db, "https://upstream.example.test/sub")
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	output, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	for _, want := range []string{
+		"Remote = ss, remote.example, 8388",
+		"Edge = vless, edge.example, 443",
+		"Proxy = select, Remote, Edge, Pinned",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
 	}
 }
 
