@@ -13,7 +13,7 @@ type Handler struct {
 }
 
 func (h Handler) List(w http.ResponseWriter, r *http.Request) {
-	userID := int64(1)
+	userID := httpapi.UserID(r.Context())
 	nodes, err := h.Service.List(userID)
 	if err != nil {
 		httpapi.Error(w, http.StatusInternalServerError, err.Error())
@@ -23,7 +23,7 @@ func (h Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handler) Import(w http.ResponseWriter, r *http.Request) {
-	userID := int64(1)
+	userID := httpapi.UserID(r.Context())
 	var input struct {
 		URIs []string `json:"uris"`
 		Text string   `json:"text"`

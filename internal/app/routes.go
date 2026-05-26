@@ -24,7 +24,7 @@ func (a *App) routes() {
 		_, _ = w.Write([]byte("ok\n"))
 	}))
 	a.mux.HandleFunc("/api/login", httpapi.Method(http.MethodPost, authHandler.Login))
-	a.mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
+	a.mux.Handle("/api/tasks", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			taskHandler.List(w, r)
@@ -33,9 +33,9 @@ func (a *App) routes() {
 		default:
 			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
-	})
-	a.mux.HandleFunc("/api/nodes", httpapi.Method(http.MethodGet, nodeHandler.List))
-	a.mux.HandleFunc("/api/nodes/import", httpapi.Method(http.MethodPost, nodeHandler.Import))
+	})))
+	a.mux.Handle("/api/nodes", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(httpapi.Method(http.MethodGet, nodeHandler.List))))
+	a.mux.Handle("/api/nodes/import", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(httpapi.Method(http.MethodPost, nodeHandler.Import))))
 	a.mux.HandleFunc("/sub/", httpapi.Method(http.MethodGet, subHandler.ServeToken))
 	a.mux.HandleFunc("/", a.serveWeb)
 }
