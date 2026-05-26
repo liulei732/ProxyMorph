@@ -1,3 +1,6 @@
 .worktrees
 .worktrees/
 .cache/
+proxymorph
+web/node_modules/
+web/dist/

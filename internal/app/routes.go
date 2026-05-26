@@ -1,13 +1,17 @@
 package app
 
 import (
+	"html/template"
+	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/liulei/proxymorph/internal/auth"
 	"github.com/liulei/proxymorph/internal/httpapi"
 	"github.com/liulei/proxymorph/internal/nodes"
 	"github.com/liulei/proxymorph/internal/subscription"
 	"github.com/liulei/proxymorph/internal/tasks"
+	"github.com/liulei/proxymorph/internal/web"
 )
 
 func (a *App) routes() {
@@ -33,4 +37,31 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/api/nodes", httpapi.Method(http.MethodGet, nodeHandler.List))
 	a.mux.HandleFunc("/api/nodes/import", httpapi.Method(http.MethodPost, nodeHandler.Import))
 	a.mux.HandleFunc("/sub/", httpapi.Method(http.MethodGet, subHandler.ServeToken))
+	a.mux.HandleFunc("/", a.serveWeb)
+}
+
+func (a *App) serveWeb(w http.ResponseWriter, r *http.Request) {
+	dist, err := fs.Sub(web.Dist, "dist")
+	if err != nil {
+		httpapi.Error(w, http.StatusInternalServerError, "web assets unavailable")
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	if path == "" {
+		path = "index.html"
+	}
+	if _, err := fs.Stat(dist, path); err != nil {
+		path = "index.html"
+	}
+	if path == "index.html" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		tpl, err := template.ParseFS(dist, "index.html")
+		if err != nil {
+			httpapi.Error(w, http.StatusInternalServerError, "index unavailable")
+			return
+		}
+		_ = tpl.Execute(w, nil)
+		return
+	}
+	http.FileServer(http.FS(dist)).ServeHTTP(w, r)
 }
