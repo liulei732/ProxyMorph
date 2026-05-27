@@ -38,7 +38,8 @@ type ConversionTask struct {
 }
 
 type GlobalRuleConfig struct {
-	CustomRulesText string
+	CustomRulesText   string
+	VLESSRelayEnabled bool
 }
 
 type PinnedNode struct {

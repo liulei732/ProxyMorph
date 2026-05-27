@@ -40,7 +40,8 @@ type UpdateInput struct {
 }
 
 type GlobalRuleConfigInput struct {
-	CustomRulesText string `json:"custom_rules_text"`
+	CustomRulesText   string `json:"custom_rules_text"`
+	VLESSRelayEnabled bool   `json:"vless_relay_enabled"`
 }
 
 func NewService(db *storage.DB) *Service {
@@ -269,12 +270,13 @@ func randomToken() (string, error) {
 }
 
 func (s *Service) GlobalRuleConfig() (storage.GlobalRuleConfig, error) {
-	values, err := s.settings("global_custom_rules_text")
+	values, err := s.settings("global_custom_rules_text", "vless_relay_enabled")
 	if err != nil {
 		return storage.GlobalRuleConfig{}, err
 	}
 	return storage.GlobalRuleConfig{
-		CustomRulesText: values["global_custom_rules_text"],
+		CustomRulesText:   values["global_custom_rules_text"],
+		VLESSRelayEnabled: settingBool(values["vless_relay_enabled"]),
 	}, nil
 }
 
@@ -285,7 +287,18 @@ func (s *Service) UpdateGlobalRuleConfig(input GlobalRuleConfigInput) (storage.G
 	if err := s.setSetting("global_custom_rules_text", input.CustomRulesText); err != nil {
 		return storage.GlobalRuleConfig{}, err
 	}
+	if err := s.setSetting("vless_relay_enabled", boolSetting(input.VLESSRelayEnabled)); err != nil {
+		return storage.GlobalRuleConfig{}, err
+	}
 	return s.GlobalRuleConfig()
+}
+
+func (s *Service) VLESSRelayEnabled() (bool, error) {
+	values, err := s.settings("vless_relay_enabled")
+	if err != nil {
+		return false, err
+	}
+	return settingBool(values["vless_relay_enabled"]), nil
 }
 
 func validateTaskUpdate(input UpdateInput) error {
@@ -389,6 +402,17 @@ func boolToInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func settingBool(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), "true")
+}
+
+func boolSetting(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }
 
 type taskScanner interface {

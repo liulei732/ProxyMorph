@@ -172,17 +172,25 @@ func TestGlobalRuleConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GlobalRuleConfig returned error: %v", err)
 	}
-	if initial.CustomRulesText != "" {
+	if initial.CustomRulesText != "" || initial.VLESSRelayEnabled {
 		t.Fatalf("unexpected initial config: %#v", initial)
 	}
 	updated, err := service.UpdateGlobalRuleConfig(GlobalRuleConfigInput{
-		CustomRulesText: "DOMAIN,global.example,DIRECT",
+		CustomRulesText:   "DOMAIN,global.example,DIRECT",
+		VLESSRelayEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("UpdateGlobalRuleConfig returned error: %v", err)
 	}
-	if updated.CustomRulesText != "DOMAIN,global.example,DIRECT" {
+	if updated.CustomRulesText != "DOMAIN,global.example,DIRECT" || !updated.VLESSRelayEnabled {
 		t.Fatalf("unexpected updated config: %#v", updated)
+	}
+	enabled, err := service.VLESSRelayEnabled()
+	if err != nil {
+		t.Fatalf("VLESSRelayEnabled returned error: %v", err)
+	}
+	if !enabled {
+		t.Fatal("VLESSRelayEnabled = false, want true")
 	}
 }
 

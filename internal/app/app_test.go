@@ -81,7 +81,7 @@ func TestRuleConfigEndpointRoundTrip(t *testing.T) {
 	}
 	cookie := loginRes.Result().Cookies()[0]
 
-	putReq := httptest.NewRequest(http.MethodPut, "/api/rule-config", bytes.NewBufferString(`{"custom_rules_text":"DOMAIN,global.example,DIRECT"}`))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/rule-config", bytes.NewBufferString(`{"custom_rules_text":"DOMAIN,global.example,DIRECT","vless_relay_enabled":true}`))
 	putReq.AddCookie(cookie)
 	putRes := httptest.NewRecorder()
 	app.Handler().ServeHTTP(putRes, putReq)
@@ -97,12 +97,13 @@ func TestRuleConfigEndpointRoundTrip(t *testing.T) {
 		t.Fatalf("get status = %d body=%q", getRes.Code, getRes.Body.String())
 	}
 	var payload struct {
-		CustomRulesText string
+		CustomRulesText   string
+		VLESSRelayEnabled bool
 	}
 	if err := json.NewDecoder(getRes.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.CustomRulesText != "DOMAIN,global.example,DIRECT" {
+	if payload.CustomRulesText != "DOMAIN,global.example,DIRECT" || !payload.VLESSRelayEnabled {
 		t.Fatalf("unexpected config: %#v", payload)
 	}
 }

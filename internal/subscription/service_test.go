@@ -109,7 +109,7 @@ func TestGenerateFailsWhenSubscriptionOnlyContainsVLESS(t *testing.T) {
 	}
 }
 
-func TestGenerateRelaysVLESSWhenRelayEnabled(t *testing.T) {
+func TestGenerateDoesNotRelayVLESSWhenSettingDisabled(t *testing.T) {
 	uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@edge.example:443?security=tls&sni=edge.example&type=ws&path=%2Fproxy&host=cdn.example#Edge"
 	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
 
@@ -119,6 +119,44 @@ func TestGenerateRelaysVLESSWhenRelayEnabled(t *testing.T) {
 	}
 	defer db.Close()
 	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/sub")
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+	defer service.Close()
+
+	_, err = service.GenerateByTaskID(1)
+	if err == nil || !strings.Contains(err.Error(), "no Surge 6 compatible proxy nodes") {
+		t.Fatalf("error = %v, want no compatible proxy nodes when VLESS setting is disabled", err)
+	}
+}
+
+func TestGenerateRelaysVLESSWhenRelaySettingEnabled(t *testing.T) {
+	uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@edge.example:443?security=tls&sni=edge.example&type=ws&path=%2Fproxy&host=cdn.example#Edge"
+	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/sub")
+	seedVLESSRelaySetting(t, db, true)
 
 	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
@@ -170,6 +208,7 @@ func TestGenerateRelaysVLESSUsesRequestHostWhenConfiguredHostIsLocalhost(t *test
 	}
 	defer db.Close()
 	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/sub")
+	seedVLESSRelaySetting(t, db, true)
 	if err := seedTaskToken(t, db, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -220,6 +259,18 @@ func seedTaskToken(t *testing.T, db *storage.DB, taskID int64) error {
 	t.Helper()
 	_, err := db.SQL().Exec(`INSERT INTO subscription_tokens (task_id, token) VALUES (?, 'test-token')`, taskID)
 	return err
+}
+
+func seedVLESSRelaySetting(t *testing.T, db *storage.DB, enabled bool) {
+	t.Helper()
+	value := "false"
+	if enabled {
+		value = "true"
+	}
+	_, err := db.SQL().Exec(`INSERT INTO app_settings (key, value) VALUES ('vless_relay_enabled', ?)`, value)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustTaskToken(t *testing.T, db *storage.DB) string {

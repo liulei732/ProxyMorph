@@ -8,6 +8,8 @@
 
 **Refinement:** Global rule configuration only stores global reusable rule text. Rule merge mode is task-specific only. No legacy global merge setting should remain in storage, API, UI, or tests.
 
+**VLESS helper refinement:** `vless_relay_enabled` is a global database setting. VLESS relay conversion runs only when the deployment environment supports relay and this setting is enabled; otherwise VLESS nodes are ignored as unsupported.
+
 **Tech Stack:** Go, SQLite, React, Vite, embedded frontend assets, Surge 6 profile syntax.
 
 ---
@@ -40,6 +42,7 @@
 - [x] Extend task create/update/list/get scan paths.
 - [x] Add global rule config service methods in `tasks.Service`.
 - [x] Remove global rule merge mode from storage, API, UI, and tests.
+- [x] Add global `vless_relay_enabled` setting read/write support.
 - [x] Test defaults for existing tasks and settings.
 - [x] Run `go test ./internal/tasks ./internal/storage`.
 
@@ -50,6 +53,7 @@
 - Test: `internal/subscription/service_test.go`
 
 - [x] Resolve effective custom rules as global rules plus task rules when `include_global_rules` is true, otherwise task rules only.
+- [x] Gate VLESS relay conversion on the global `vless_relay_enabled` setting.
 - [x] Pass effective custom rules, task custom groups, rule merge mode, and managed header to the Surge renderer.
 - [x] Generate MANAGED-CONFIG header from the task subscription URL.
 - [x] Test global-included, global-excluded, task custom-only, all four merge modes, custom groups, and managed header.
@@ -80,6 +84,7 @@
 - [x] Add `RuleConfig` and extended `Task` TypeScript types.
 - [x] Fetch global rule config during refresh.
 - [x] Add Settings panel controls for global rules.
+- [x] Add Settings panel control for VLESS helper conversion.
 - [x] Add per-task advanced config controls: include global rules, merge mode, custom rules, custom groups, MANAGED-CONFIG interval/strict.
 - [x] Add save toasts and error toasts for global and task config.
 - [x] Render non-editable settings information as read-only text rows instead of disabled-looking inputs.

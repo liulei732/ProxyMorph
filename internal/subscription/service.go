@@ -91,7 +91,7 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	}
 	log.Printf("subscription task=%d stage=pinned status=ok nodes=%d merge_default=%t", task.ID, len(pinned), task.MergeDefaultPinnedNodes)
 	doc.Nodes = convert.MergeNodes(doc.Nodes, pinned, convert.MergeOptions{Mode: task.PinnedNodeOrderMode})
-	if s.vlessRelay != nil {
+	if s.vlessRelayEnabled() {
 		relayStartedAt := time.Now()
 		s.configureRelayHost(relayHost)
 		doc.Nodes, err = s.vlessRelay.Configure(doc.Nodes)
@@ -142,6 +142,18 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	s.recordRun(task.ID, "success", "")
 	log.Printf("subscription task=%d stage=render status=ok nodes=%d groups=%d output_bytes=%d", task.ID, len(doc.Nodes), len(doc.Groups), len(output))
 	return output, nil
+}
+
+func (s *Service) vlessRelayEnabled() bool {
+	if s.vlessRelay == nil {
+		return false
+	}
+	enabled, err := s.tasks.VLESSRelayEnabled()
+	if err != nil {
+		log.Printf("subscription stage=vless_relay_setting status=error error=%q", err)
+		return false
+	}
+	return enabled
 }
 
 func (s *Service) configureRelayHost(requestHost string) {

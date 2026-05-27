@@ -76,6 +76,17 @@ The subscription URL must be URL encoded and must preserve the existing task `na
 
 The MANAGED-CONFIG header must be the first line of the generated file.
 
+## VLESS Helper
+
+ProxyMorph stores a global `vless_relay_enabled` setting in `app_settings`.
+
+VLESS relay conversion only runs when both conditions are true:
+
+- The deployment environment enables and configures VLESS relay support.
+- The database setting `vless_relay_enabled` is `true`.
+
+When the setting is false, VLESS nodes are treated as unsupported and are ignored during Surge 6 rendering. If a subscription only contains VLESS nodes and the helper is disabled, generation fails with the existing "no Surge 6 compatible proxy nodes" error.
+
 ## Rendering Order
 
 Generated Surge profile order:
