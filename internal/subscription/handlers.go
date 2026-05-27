@@ -14,6 +14,7 @@ type Handler struct {
 
 type Generator interface {
 	GenerateByToken(token string) (string, error)
+	GenerateByTokenWithRelayHost(token, relayHost string) (string, error)
 }
 
 func (h Handler) ServeToken(w http.ResponseWriter, r *http.Request) {
@@ -22,7 +23,7 @@ func (h Handler) ServeToken(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusNotFound, "subscription not found")
 		return
 	}
-	output, err := h.Service.GenerateByToken(token)
+	output, err := h.Service.GenerateByTokenWithRelayHost(token, r.Host)
 	if err != nil {
 		log.Printf("subscription generation failed token=%q error=%q", safeTokenLabel(token), err)
 		httpapi.Error(w, http.StatusBadGateway, "subscription generation failed")

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -45,6 +46,10 @@ func (s *Service) SetVLESSRelay(cfg config.VLESSRelayConfig) {
 }
 
 func (s *Service) GenerateByTaskID(taskID int64) (string, error) {
+	return s.generateByTaskID(taskID, "")
+}
+
+func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, error) {
 	task, err := s.loadTask(taskID)
 	if err != nil {
 		log.Printf("subscription task=%d stage=load_task status=error error=%q", taskID, err)
@@ -85,6 +90,7 @@ func (s *Service) GenerateByTaskID(taskID int64) (string, error) {
 	doc.Nodes = convert.MergeNodes(doc.Nodes, pinned, convert.MergeOptions{Mode: task.PinnedNodeOrderMode})
 	if s.vlessRelay != nil {
 		relayStartedAt := time.Now()
+		s.configureRelayHost(relayHost)
 		doc.Nodes, err = s.vlessRelay.Configure(doc.Nodes)
 		if err != nil {
 			log.Printf("subscription task=%d stage=vless_relay status=error duration_ms=%d error=%q", task.ID, time.Since(relayStartedAt).Milliseconds(), err)
@@ -124,6 +130,15 @@ func (s *Service) GenerateByTaskID(taskID int64) (string, error) {
 	return output, nil
 }
 
+func (s *Service) configureRelayHost(requestHost string) {
+	host := relayPublicHost(s.relayConfig.PublicHost, requestHost)
+	if host == s.relayConfig.PublicHost {
+		return
+	}
+	s.relayConfig.PublicHost = host
+	s.vlessRelay = singbox.NewManager(s.relayConfig)
+}
+
 func (s *Service) Close() error {
 	if s.vlessRelay == nil {
 		return nil
@@ -132,6 +147,10 @@ func (s *Service) Close() error {
 }
 
 func (s *Service) GenerateByToken(token string) (string, error) {
+	return s.GenerateByTokenWithRelayHost(token, "")
+}
+
+func (s *Service) GenerateByTokenWithRelayHost(token, relayHost string) (string, error) {
 	var taskID int64
 	err := s.db.SQL().QueryRow(`SELECT task_id FROM subscription_tokens WHERE token = ?`, token).Scan(&taskID)
 	if err != nil {
@@ -139,7 +158,7 @@ func (s *Service) GenerateByToken(token string) (string, error) {
 		return "", err
 	}
 	log.Printf("subscription token=%q stage=resolve_token status=ok task=%d", safeTokenLabel(token), taskID)
-	return s.GenerateByTaskID(taskID)
+	return s.generateByTaskID(taskID, relayHost)
 }
 
 func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
@@ -282,6 +301,30 @@ func safeTokenLabel(token string) string {
 		return "***"
 	}
 	return token[:4] + "..." + token[len(token)-4:]
+}
+
+func relayPublicHost(configuredHost, requestHost string) string {
+	configuredHost = strings.TrimSpace(configuredHost)
+	if configuredHost != "" && !isLocalRelayHost(configuredHost) {
+		return configuredHost
+	}
+	requestHost = strings.TrimSpace(requestHost)
+	if requestHost == "" {
+		return configuredHost
+	}
+	host := requestHost
+	if parsedHost, _, err := net.SplitHostPort(requestHost); err == nil {
+		host = parsedHost
+	}
+	if host == "" {
+		return configuredHost
+	}
+	return host
+}
+
+func isLocalRelayHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "" || host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
 }
 
 func (s *Service) storeCache(taskID int64, content string) error {

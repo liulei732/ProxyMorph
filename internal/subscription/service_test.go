@@ -160,14 +160,75 @@ func TestGenerateRelaysVLESSWhenRelayEnabled(t *testing.T) {
 	}
 }
 
+func TestGenerateRelaysVLESSUsesRequestHostWhenConfiguredHostIsLocalhost(t *testing.T) {
+	uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@edge.example:443?security=tls&sni=edge.example&type=tcp#Edge"
+	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/sub")
+	if err := seedTaskToken(t, db, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "localhost",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+	defer service.Close()
+
+	output, err := service.GenerateByTokenWithRelayHost(mustTaskToken(t, db), "proxy.example.test:8080")
+	if err != nil {
+		t.Fatalf("GenerateByTokenWithRelayHost returned error: %v", err)
+	}
+	if !strings.Contains(output, "Edge = socks5, proxy.example.test, 19000") {
+		t.Fatalf("output should use request host without port instead of localhost:\n%s", output)
+	}
+	if strings.Contains(output, "localhost") {
+		t.Fatalf("output should not contain localhost:\n%s", output)
+	}
+}
+
 func fakeSingBox(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sing-box")
-	script := "#!/bin/sh\nwhile true; do sleep 1; done\n"
+	script := "#!/bin/sh\nexec tail -f /dev/null\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func seedTaskToken(t *testing.T, db *storage.DB, taskID int64) error {
+	t.Helper()
+	_, err := db.SQL().Exec(`INSERT INTO subscription_tokens (task_id, token) VALUES (?, 'test-token')`, taskID)
+	return err
+}
+
+func mustTaskToken(t *testing.T, db *storage.DB) string {
+	t.Helper()
+	var token string
+	if err := db.SQL().QueryRow(`SELECT token FROM subscription_tokens WHERE task_id = 1`).Scan(&token); err != nil {
+		t.Fatal(err)
+	}
+	return token
 }
 
 func TestGenerateSkipsUnsupportedURIListEntries(t *testing.T) {

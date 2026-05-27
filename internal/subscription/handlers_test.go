@@ -16,6 +16,10 @@ func (f failingSubscriptionService) GenerateByToken(token string) (string, error
 	return "", errors.New("upstream returned status 403")
 }
 
+func (f failingSubscriptionService) GenerateByTokenWithRelayHost(token, relayHost string) (string, error) {
+	return f.GenerateByToken(token)
+}
+
 func TestServeTokenLogsGenerationError(t *testing.T) {
 	var logs bytes.Buffer
 	previousOutput := log.Writer()

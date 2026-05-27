@@ -25,7 +25,7 @@ func TestManagerStartRestartsSingBoxWithGeneratedConfig(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "args.log")
 	binPath := filepath.Join(dir, "fake-sing-box")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> " + logPath + "\nwhile true; do sleep 1; done\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> " + logPath + "\nexec tail -f /dev/null\n"
 	if err := os.WriteFile(binPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
