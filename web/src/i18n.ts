@@ -43,6 +43,7 @@ export const translations = {
     metrics: {
       tasks: "任务",
       pinnedNodes: "固定节点",
+      globalRules: "启用全局规则",
       errors: "错误",
     },
     forms: {
@@ -56,11 +57,20 @@ export const translations = {
       importNodes: "导入节点",
       enabled: "启用",
       mergeDefaults: "合并默认固定节点",
+      includeGlobalRules: "包含全局规则",
+      ruleMergeMode: "规则合并方式",
+      customRules: "自定义规则",
+      customGroups: "自定义策略组",
+      managedConfig: "启用 MANAGED-CONFIG",
+      managedInterval: "托管刷新间隔",
+      managedStrict: "严格模式",
     },
     placeholders: {
       taskName: "主订阅",
       clashURL: "https://example.com/clash.yaml",
       proxyURIs: "vless://uuid@example.com:443?security=tls&sni=edge.example.com#Edge",
+      customRules: "DOMAIN,example.com,DIRECT\nIP-CIDR,192.168.0.0/16,DIRECT",
+      customGroups: "Manual = select, Proxy, DIRECT",
     },
     taskList: {
       title: "转换任务",
@@ -105,6 +115,15 @@ export const translations = {
       cachePolicyValue: "按需刷新，失败时使用上次成功结果",
       vlessHelper: "VLESS 辅助",
       vlessHelperValue: "启用后用 sing-box 中转为 Surge socks5 节点",
+      globalRuleTitle: "全局规则配置",
+      ruleConfigSaved: "全局规则配置已保存。",
+      ruleConfigSaveFailed: "保存全局规则配置失败。",
+    },
+    ruleMergeModes: {
+      custom_first: "自定义优先",
+      upstream_first: "上游优先",
+      custom_first_dedupe: "自定义优先并去重",
+      upstream_first_dedupe: "上游优先并去重",
     },
   },
   en: {
@@ -138,6 +157,7 @@ export const translations = {
     metrics: {
       tasks: "Tasks",
       pinnedNodes: "Pinned Nodes",
+      globalRules: "Global Rules",
       errors: "Errors",
     },
     forms: {
@@ -151,11 +171,20 @@ export const translations = {
       importNodes: "Import Nodes",
       enabled: "Enabled",
       mergeDefaults: "Merge default pinned nodes",
+      includeGlobalRules: "Include global rules",
+      ruleMergeMode: "Rule merge mode",
+      customRules: "Custom rules",
+      customGroups: "Custom policy groups",
+      managedConfig: "Enable MANAGED-CONFIG",
+      managedInterval: "Managed interval",
+      managedStrict: "Strict mode",
     },
     placeholders: {
       taskName: "Main subscription",
       clashURL: "https://example.com/clash.yaml",
       proxyURIs: "vless://uuid@example.com:443?security=tls&sni=edge.example.com#Edge",
+      customRules: "DOMAIN,example.com,DIRECT\nIP-CIDR,192.168.0.0/16,DIRECT",
+      customGroups: "Manual = select, Proxy, DIRECT",
     },
     taskList: {
       title: "Conversion Tasks",
@@ -200,6 +229,15 @@ export const translations = {
       cachePolicyValue: "Refresh on request with last-good fallback",
       vlessHelper: "VLESS Helper",
       vlessHelperValue: "Relays VLESS through sing-box as Surge socks5 nodes",
+      globalRuleTitle: "Global Rule Configuration",
+      ruleConfigSaved: "Global rule config saved.",
+      ruleConfigSaveFailed: "Save global rule config failed.",
+    },
+    ruleMergeModes: {
+      custom_first: "Custom first",
+      upstream_first: "Upstream first",
+      custom_first_dedupe: "Custom first with dedupe",
+      upstream_first_dedupe: "Upstream first with dedupe",
     },
   },
 } as const;

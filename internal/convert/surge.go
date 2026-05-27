@@ -69,8 +69,20 @@ func RenderSurge6(nodes []Node, groups []Group, rules []string) string {
 }
 
 func RenderSurge6WithOptions(nodes []Node, groups []Group, rules []string, opts RenderOptions) (string, error) {
+	return renderSurge6(nodes, groups, rules, SurgeConfig{}, opts)
+}
+
+func RenderSurge6WithConfig(nodes []Node, groups []Group, rules []string, cfg SurgeConfig) (string, error) {
+	return renderSurge6(nodes, groups, rules, cfg, RenderOptions{VLESSRenderer: renderSimpleVLESS})
+}
+
+func renderSurge6(nodes []Node, groups []Group, rules []string, cfg SurgeConfig, opts RenderOptions) (string, error) {
 	var b strings.Builder
 	defaultPolicy := "Proxy"
+	if header := strings.TrimSpace(cfg.ManagedConfigHeader); header != "" {
+		b.WriteString(header)
+		b.WriteString("\n\n")
+	}
 	b.WriteString("[Proxy]\n")
 	for _, node := range nodes {
 		rendered, err := renderNodeWithOptions(node, opts)
@@ -105,12 +117,77 @@ func RenderSurge6WithOptions(nodes []Node, groups []Group, rules []string, opts 
 			b.WriteString("\n")
 		}
 	}
+	for _, group := range normalizeLines(cfg.CustomGroups) {
+		b.WriteString(group)
+		b.WriteString("\n")
+	}
 	b.WriteString("\n[Rule]\n")
-	for _, rule := range ensureFinalRule(rules, defaultPolicy) {
+	for _, rule := range ensureFinalRule(mergeRules(rules, cfg.CustomRules, cfg.RuleMergeMode), defaultPolicy) {
 		b.WriteString(rule)
 		b.WriteString("\n")
 	}
 	return b.String(), nil
+}
+
+func mergeRules(upstreamRules, customRules []string, mode string) []string {
+	upstream := stripFinalRules(normalizeLines(upstreamRules))
+	custom := stripFinalRules(normalizeLines(customRules))
+	switch mode {
+	case "upstream_first":
+		return append(append([]string{}, upstream...), custom...)
+	case "custom_first_dedupe":
+		return appendDedupe(custom, upstream)
+	case "upstream_first_dedupe":
+		return appendDedupe(upstream, custom)
+	default:
+		return append(append([]string{}, custom...), upstream...)
+	}
+}
+
+func normalizeLines(lines []string) []string {
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func stripFinalRules(rules []string) []string {
+	result := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(rule)), "FINAL,") {
+			continue
+		}
+		result = append(result, rule)
+	}
+	return result
+}
+
+func appendDedupe(primary, secondary []string) []string {
+	result := append([]string{}, primary...)
+	seen := make(map[string]struct{}, len(primary)+len(secondary))
+	for _, rule := range primary {
+		seen[ruleKey(rule)] = struct{}{}
+	}
+	for _, rule := range secondary {
+		key := ruleKey(rule)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, rule)
+	}
+	return result
+}
+
+func ruleKey(rule string) string {
+	parts := strings.Split(rule, ",")
+	if len(parts) < 2 {
+		return strings.TrimSpace(rule)
+	}
+	return strings.ToUpper(strings.TrimSpace(parts[0])) + "," + strings.TrimSpace(parts[1])
 }
 
 func ensureFinalRule(rules []string, defaultPolicy string) []string {

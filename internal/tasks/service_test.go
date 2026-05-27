@@ -124,6 +124,111 @@ func TestUpdateTaskChangesEditableFields(t *testing.T) {
 	}
 }
 
+func TestUpdateTaskChangesSurgeConfigFields(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+	task, err := service.Create(userID, CreateInput{Name: "Main", SourceURL: "https://example.com/a.yaml", RefreshIntervalSeconds: 3600})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	includeGlobal := false
+	managedEnabled := true
+	managedStrict := true
+	next, err := service.Update(userID, task.ID, UpdateInput{
+		IncludeGlobalRules:           &includeGlobal,
+		CustomRulesText:              stringPtr("DOMAIN,task.example,DIRECT"),
+		RuleMergeMode:                stringPtr("upstream_first_dedupe"),
+		CustomGroupsText:             stringPtr("Manual = select, Proxy, DIRECT"),
+		ManagedConfigEnabled:         &managedEnabled,
+		ManagedConfigIntervalSeconds: intPtr(7200),
+		ManagedConfigStrict:          &managedStrict,
+	})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if next.IncludeGlobalRules || next.CustomRulesText != "DOMAIN,task.example,DIRECT" || next.RuleMergeMode != "upstream_first_dedupe" {
+		t.Fatalf("unexpected rule config: %#v", next)
+	}
+	if next.CustomGroupsText != "Manual = select, Proxy, DIRECT" || !next.ManagedConfigEnabled || next.ManagedConfigIntervalSeconds != 7200 || !next.ManagedConfigStrict {
+		t.Fatalf("unexpected group/managed config: %#v", next)
+	}
+}
+
+func TestGlobalRuleConfigRoundTrip(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service := NewService(db)
+
+	initial, err := service.GlobalRuleConfig()
+	if err != nil {
+		t.Fatalf("GlobalRuleConfig returned error: %v", err)
+	}
+	if initial.CustomRulesText != "" || initial.RuleMergeMode != "custom_first" {
+		t.Fatalf("unexpected initial config: %#v", initial)
+	}
+	updated, err := service.UpdateGlobalRuleConfig(GlobalRuleConfigInput{
+		CustomRulesText: "DOMAIN,global.example,DIRECT",
+		RuleMergeMode:   "custom_first_dedupe",
+	})
+	if err != nil {
+		t.Fatalf("UpdateGlobalRuleConfig returned error: %v", err)
+	}
+	if updated.CustomRulesText != "DOMAIN,global.example,DIRECT" || updated.RuleMergeMode != "custom_first_dedupe" {
+		t.Fatalf("unexpected updated config: %#v", updated)
+	}
+}
+
+func TestUpdateRejectsInvalidSurgeConfigText(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+	task, err := service.Create(userID, CreateInput{Name: "Main", SourceURL: "https://example.com/a.yaml", RefreshIntervalSeconds: 3600})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	if _, err := service.Update(userID, task.ID, UpdateInput{CustomRulesText: stringPtr("[Rule]\nDOMAIN,example.com,DIRECT")}); err == nil {
+		t.Fatal("Update accepted [Rule] in custom rules")
+	}
+	if _, err := service.Update(userID, task.ID, UpdateInput{CustomGroupsText: stringPtr("[Proxy Group]\nManual = select, Proxy")}); err == nil {
+		t.Fatal("Update accepted [Proxy Group] in custom groups")
+	}
+	if _, err := service.UpdateGlobalRuleConfig(GlobalRuleConfigInput{CustomRulesText: "[Rule]\nFINAL,DIRECT"}); err == nil {
+		t.Fatal("UpdateGlobalRuleConfig accepted [Rule] in custom rules")
+	}
+}
+
+func TestUpdateRejectsTooSmallManagedConfigInterval(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+	task, err := service.Create(userID, CreateInput{Name: "Main", SourceURL: "https://example.com/a.yaml", RefreshIntervalSeconds: 3600})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	if _, err := service.Update(userID, task.ID, UpdateInput{ManagedConfigIntervalSeconds: intPtr(59)}); err == nil {
+		t.Fatal("Update accepted managed config interval below 60")
+	}
+}
+
 func TestDeleteTaskRemovesTaskAndToken(t *testing.T) {
 	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

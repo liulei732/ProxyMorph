@@ -28,6 +28,32 @@ func (h Handler) List(w http.ResponseWriter, r *http.Request) {
 	httpapi.JSON(w, http.StatusOK, tasks)
 }
 
+func (h Handler) RuleConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		config, err := h.Service.GlobalRuleConfig()
+		if err != nil {
+			httpapi.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		httpapi.JSON(w, http.StatusOK, config)
+	case http.MethodPut:
+		var input GlobalRuleConfigInput
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		config, err := h.Service.UpdateGlobalRuleConfig(input)
+		if err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		httpapi.JSON(w, http.StatusOK, config)
+	default:
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 func (h Handler) Create(w http.ResponseWriter, r *http.Request) {
 	userID := httpapi.UserID(r.Context())
 	var input CreateInput
@@ -71,7 +97,7 @@ func (h Handler) Update(w http.ResponseWriter, r *http.Request, id int64) {
 	}
 	task, err := h.Service.Update(httpapi.UserID(r.Context()), id, input)
 	if err != nil {
-		httpapi.Error(w, http.StatusInternalServerError, err.Error())
+		httpapi.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	httpapi.JSON(w, http.StatusOK, task)

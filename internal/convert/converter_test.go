@@ -240,3 +240,95 @@ func TestRenderSurge6UsesFirstGroupForDefaultFinalRule(t *testing.T) {
 		t.Fatalf("output should append FINAL using first group:\n%s", out)
 	}
 }
+
+func TestRenderSurge6WithCustomRulesCustomFirst(t *testing.T) {
+	out, err := RenderSurge6WithConfig(
+		[]Node{{Name: "Edge", Protocol: "ss", Server: "example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}}},
+		nil,
+		[]string{"DOMAIN,upstream.example,Proxy"},
+		SurgeConfig{CustomRules: []string{"DOMAIN,custom.example,DIRECT"}, RuleMergeMode: "custom_first"},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithConfig returned error: %v", err)
+	}
+	assertOrder(t, out, "DOMAIN,custom.example,DIRECT", "DOMAIN,upstream.example,Proxy", "FINAL,Proxy")
+}
+
+func TestRenderSurge6WithCustomRulesUpstreamFirst(t *testing.T) {
+	out, err := RenderSurge6WithConfig(
+		[]Node{{Name: "Edge", Protocol: "ss", Server: "example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}}},
+		nil,
+		[]string{"DOMAIN,upstream.example,Proxy"},
+		SurgeConfig{CustomRules: []string{"DOMAIN,custom.example,DIRECT"}, RuleMergeMode: "upstream_first"},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithConfig returned error: %v", err)
+	}
+	assertOrder(t, out, "DOMAIN,upstream.example,Proxy", "DOMAIN,custom.example,DIRECT", "FINAL,Proxy")
+}
+
+func TestRenderSurge6WithCustomRulesDedupeCustomFirst(t *testing.T) {
+	out, err := RenderSurge6WithConfig(
+		[]Node{{Name: "Edge", Protocol: "ss", Server: "example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}}},
+		nil,
+		[]string{"DOMAIN,dup.example,Proxy", "DOMAIN,upstream.example,Proxy"},
+		SurgeConfig{CustomRules: []string{"DOMAIN,dup.example,DIRECT", "DOMAIN,custom.example,DIRECT"}, RuleMergeMode: "custom_first_dedupe"},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithConfig returned error: %v", err)
+	}
+	assertOrder(t, out, "DOMAIN,dup.example,DIRECT", "DOMAIN,custom.example,DIRECT", "DOMAIN,upstream.example,Proxy", "FINAL,Proxy")
+	if strings.Contains(out, "DOMAIN,dup.example,Proxy") {
+		t.Fatalf("output should remove duplicate upstream rule:\n%s", out)
+	}
+}
+
+func TestRenderSurge6WithCustomRulesDedupeUpstreamFirst(t *testing.T) {
+	out, err := RenderSurge6WithConfig(
+		[]Node{{Name: "Edge", Protocol: "ss", Server: "example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}}},
+		nil,
+		[]string{"DOMAIN,dup.example,Proxy", "DOMAIN,upstream.example,Proxy"},
+		SurgeConfig{CustomRules: []string{"DOMAIN,dup.example,DIRECT", "DOMAIN,custom.example,DIRECT"}, RuleMergeMode: "upstream_first_dedupe"},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithConfig returned error: %v", err)
+	}
+	assertOrder(t, out, "DOMAIN,dup.example,Proxy", "DOMAIN,upstream.example,Proxy", "DOMAIN,custom.example,DIRECT", "FINAL,Proxy")
+	if strings.Contains(out, "DOMAIN,dup.example,DIRECT") {
+		t.Fatalf("output should remove duplicate custom rule:\n%s", out)
+	}
+}
+
+func TestRenderSurge6WithCustomGroupsAndManagedConfig(t *testing.T) {
+	out, err := RenderSurge6WithConfig(
+		[]Node{{Name: "Edge", Protocol: "ss", Server: "example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}}},
+		[]Group{{Name: "Auto", Type: "select", Proxies: []string{"Edge"}}},
+		nil,
+		SurgeConfig{
+			CustomGroups:        []string{"Manual = select, Auto, DIRECT"},
+			ManagedConfigHeader: "#!MANAGED-CONFIG http://localhost:8080/sub/token?name=Main interval=86400 strict=false",
+		},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithConfig returned error: %v", err)
+	}
+	if !strings.HasPrefix(out, "#!MANAGED-CONFIG http://localhost:8080/sub/token?name=Main interval=86400 strict=false\n") {
+		t.Fatalf("managed config header should be first line:\n%s", out)
+	}
+	assertOrder(t, out, "Auto = select, Edge", "Manual = select, Auto, DIRECT", "FINAL,Auto")
+}
+
+func assertOrder(t *testing.T, text string, values ...string) {
+	t.Helper()
+	last := -1
+	for _, value := range values {
+		idx := strings.Index(text, value)
+		if idx == -1 {
+			t.Fatalf("output missing %q:\n%s", value, text)
+		}
+		if idx < last {
+			t.Fatalf("%q should appear after previous values:\n%s", value, text)
+		}
+		last = idx
+	}
+}

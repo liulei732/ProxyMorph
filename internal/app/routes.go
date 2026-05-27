@@ -36,6 +36,7 @@ func (a *App) routes() {
 		}
 	})))
 	a.mux.Handle("/api/tasks/", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(taskHandler.ServeTask)))
+	a.mux.Handle("/api/rule-config", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(taskHandler.RuleConfig)))
 	a.mux.Handle("/api/nodes", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(httpapi.Method(http.MethodGet, nodeHandler.List))))
 	a.mux.Handle("/api/nodes/import", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(httpapi.Method(http.MethodPost, nodeHandler.Import))))
 	a.mux.HandleFunc("/sub/", httpapi.Method(http.MethodGet, subHandler.ServeToken))

@@ -250,6 +250,110 @@ func TestGenerateSkipsUnsupportedURIListEntries(t *testing.T) {
 	}
 }
 
+func TestGenerateAppliesTaskAndGlobalRuleConfig(t *testing.T) {
+	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\nrules:\n  - DOMAIN,upstream.example,Proxy\n"
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/clash.yaml")
+	_, err = db.SQL().Exec(`
+		UPDATE conversion_tasks
+		SET include_global_rules = 1,
+			custom_rules_text = 'DOMAIN,task.example,DIRECT',
+			rule_merge_mode = 'custom_first_dedupe',
+			custom_groups_text = 'Manual = select, Proxy, DIRECT',
+			managed_config_enabled = 1,
+			managed_config_interval_seconds = 7200,
+			managed_config_strict = 1
+		WHERE id = 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.SQL().Exec(`INSERT INTO app_settings (key, value) VALUES ('global_custom_rules_text', 'DOMAIN,global.example,DIRECT'), ('global_rule_merge_mode', 'upstream_first')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := seedTaskToken(t, db, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	output, err := service.GenerateByTokenWithRelayHost("test-token", "localhost:8080")
+	if err != nil {
+		t.Fatalf("GenerateByTokenWithRelayHost returned error: %v", err)
+	}
+	if !strings.HasPrefix(output, "#!MANAGED-CONFIG http://localhost:8080/sub/test-token?name=Main interval=7200 strict=true\n") {
+		t.Fatalf("managed header missing or not first:\n%s", output)
+	}
+	assertSubscriptionOrder(t, output,
+		"Proxy = select, Remote",
+		"Manual = select, Proxy, DIRECT",
+		"DOMAIN,global.example,DIRECT",
+		"DOMAIN,task.example,DIRECT",
+		"DOMAIN,upstream.example,Proxy",
+		"FINAL,Proxy",
+	)
+}
+
+func TestGenerateCanExcludeGlobalRuleConfig(t *testing.T) {
+	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\nrules:\n  - DOMAIN,upstream.example,Proxy\n"
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/clash.yaml")
+	_, err = db.SQL().Exec(`UPDATE conversion_tasks SET include_global_rules = 0, custom_rules_text = 'DOMAIN,task.example,DIRECT', rule_merge_mode = 'upstream_first' WHERE id = 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.SQL().Exec(`INSERT INTO app_settings (key, value) VALUES ('global_custom_rules_text', 'DOMAIN,global.example,DIRECT')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	output, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	assertSubscriptionOrder(t, output, "DOMAIN,upstream.example,Proxy", "DOMAIN,task.example,DIRECT", "FINAL,Proxy")
+	if strings.Contains(output, "global.example") {
+		t.Fatalf("global rule should be excluded:\n%s", output)
+	}
+}
+
+func assertSubscriptionOrder(t *testing.T, text string, values ...string) {
+	t.Helper()
+	last := -1
+	for _, value := range values {
+		idx := strings.Index(text, value)
+		if idx == -1 {
+			t.Fatalf("output missing %q:\n%s", value, text)
+		}
+		if idx < last {
+			t.Fatalf("%q should appear after previous values:\n%s", value, text)
+		}
+		last = idx
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {

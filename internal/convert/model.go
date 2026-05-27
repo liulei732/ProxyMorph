@@ -13,3 +13,10 @@ type Node struct {
 type MergeOptions struct {
 	Mode string
 }
+
+type SurgeConfig struct {
+	CustomRules         []string
+	CustomGroups        []string
+	RuleMergeMode       string
+	ManagedConfigHeader string
+}

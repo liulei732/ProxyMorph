@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { AlertCircle, Copy, Eye, KeyRound, Pencil, Play, Plus, RefreshCw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
+import { AlertCircle, Copy, Eye, KeyRound, Layers, Pencil, Play, Plus, RefreshCw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
 import { api } from "./api";
 import { getInitialLanguage, languageStorageKey, languages, translations, type Language } from "./i18n";
 import "./styles.css";
@@ -18,6 +18,20 @@ type Task = {
   LastSuccessAt?: string | null;
   LastErrorAt?: string | null;
   LastErrorMessage: string;
+  IncludeGlobalRules: boolean;
+  CustomRulesText: string;
+  RuleMergeMode: RuleMergeMode;
+  CustomGroupsText: string;
+  ManagedConfigEnabled: boolean;
+  ManagedConfigIntervalSeconds: number;
+  ManagedConfigStrict: boolean;
+};
+
+type RuleMergeMode = "custom_first" | "upstream_first" | "custom_first_dedupe" | "upstream_first_dedupe";
+
+type RuleConfig = {
+  CustomRulesText: string;
+  RuleMergeMode: RuleMergeMode;
 };
 
 type PinnedNode = {
@@ -37,6 +51,7 @@ function App() {
   const [language, setLanguage] = React.useState<Language>(() => getInitialLanguage(localStorage.getItem(languageStorageKey)));
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [nodes, setNodes] = React.useState<PinnedNode[]>([]);
+  const [ruleConfig, setRuleConfig] = React.useState<RuleConfig>({ CustomRulesText: "", RuleMergeMode: "custom_first" });
   const [error, setError] = React.useState("");
   const [toast, setToast] = React.useState("");
   const [busyTaskID, setBusyTaskID] = React.useState<number | null>(null);
@@ -79,12 +94,14 @@ function App() {
   }
 
   async function refresh(showToast = false) {
-    const [nextTasks, nextNodes] = await Promise.all([
+    const [nextTasks, nextNodes, nextRuleConfig] = await Promise.all([
       api<Task[]>("/api/tasks").catch(() => []),
       api<PinnedNode[]>("/api/nodes").catch(() => []),
+      api<RuleConfig>("/api/rule-config").catch(() => ({ CustomRulesText: "", RuleMergeMode: "custom_first" as RuleMergeMode })),
     ]);
     setTasks(nextTasks);
     setNodes(nextNodes);
+    setRuleConfig(nextRuleConfig);
     if (showToast) notify(t.refreshed);
   }
 
@@ -131,7 +148,7 @@ function App() {
     }
   }
 
-  async function updateTask(id: number, input: Partial<Task> & { refresh_interval_seconds?: number; merge_default_pinned_nodes?: boolean }) {
+  async function updateTask(id: number, input: TaskUpdateInput) {
     setBusyTaskID(id);
     try {
       await api(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(input) });
@@ -141,6 +158,24 @@ function App() {
       notify(t.taskList.saveFailed);
     } finally {
       setBusyTaskID(null);
+    }
+  }
+
+  async function updateRuleConfig(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      const next = await api<RuleConfig>("/api/rule-config", {
+        method: "PUT",
+        body: JSON.stringify({
+          custom_rules_text: String(form.get("custom_rules_text") || ""),
+          rule_merge_mode: String(form.get("rule_merge_mode") || "custom_first"),
+        }),
+      });
+      setRuleConfig(next);
+      notify(t.settings.ruleConfigSaved);
+    } catch {
+      notify(t.settings.ruleConfigSaveFailed);
     }
   }
 
@@ -254,6 +289,7 @@ function App() {
             <div className="metrics">
               <Metric icon={<Server />} value={tasks.length} label={t.metrics.tasks} />
               <Metric icon={<ShieldCheck />} value={nodes.length} label={t.metrics.pinnedNodes} />
+              <Metric icon={<Layers />} value={tasks.filter((task) => task.IncludeGlobalRules).length} label={t.metrics.globalRules} />
               <Metric icon={<AlertCircle />} value={errors.length} label={t.metrics.errors} />
             </div>
             <TaskList tasks={tasks} t={t} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} />
@@ -284,11 +320,36 @@ function App() {
         )}
 
         {tab === "preview" && <section className="panel"><h3>{t.preview.title}</h3><pre>{previewContent || t.preview.empty}</pre></section>}
-        {tab === "settings" && <section className="panel grid-form"><label>{t.settings.cachePolicy}<input readOnly value={t.settings.cachePolicyValue} /></label><label>{t.settings.vlessHelper}<input readOnly value={t.settings.vlessHelperValue} /></label></section>}
+        {tab === "settings" && (
+          <section className="stack">
+            <form className="panel settings-form" onSubmit={updateRuleConfig}>
+              <h3>{t.settings.globalRuleTitle}</h3>
+              <label>{t.forms.ruleMergeMode}<select name="rule_merge_mode" defaultValue={ruleConfig.RuleMergeMode}>{ruleMergeOptions(t)}</select></label>
+              <label className="wide-field">{t.forms.customRules}<textarea name="custom_rules_text" rows={8} defaultValue={ruleConfig.CustomRulesText} placeholder={t.placeholders.customRules} /></label>
+              <button><Save size={15} /> {t.forms.save}</button>
+            </form>
+            <section className="panel grid-form"><label>{t.settings.cachePolicy}<input readOnly value={t.settings.cachePolicyValue} /></label><label>{t.settings.vlessHelper}<input readOnly value={t.settings.vlessHelperValue} /></label></section>
+          </section>
+        )}
       </section>
     </main>
   );
 }
+
+type TaskUpdateInput = {
+  name?: string;
+  source_url?: string;
+  refresh_interval_seconds?: number;
+  enabled?: boolean;
+  merge_default_pinned_nodes?: boolean;
+  include_global_rules?: boolean;
+  custom_rules_text?: string;
+  rule_merge_mode?: RuleMergeMode;
+  custom_groups_text?: string;
+  managed_config_enabled?: boolean;
+  managed_config_interval_seconds?: number;
+  managed_config_strict?: boolean;
+};
 
 function LanguageSwitch({ language, onChange }: { language: Language; onChange: (language: Language) => void }) {
   return (
@@ -326,7 +387,7 @@ function TaskList({
   t: typeof translations[Language];
   busyTaskID: number | null;
   onCopy: (message: string) => void;
-  onUpdate: (id: number, input: { name?: string; source_url?: string; refresh_interval_seconds?: number; enabled?: boolean; merge_default_pinned_nodes?: boolean }) => Promise<void>;
+  onUpdate: (id: number, input: TaskUpdateInput) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onGenerate: (id: number) => Promise<void>;
   onPreview: (id: number) => Promise<void>;
@@ -357,7 +418,7 @@ function TaskRow({
   t: typeof translations[Language];
   busy: boolean;
   onCopy: (message: string) => void;
-  onUpdate: (id: number, input: { name?: string; source_url?: string; refresh_interval_seconds?: number; enabled?: boolean; merge_default_pinned_nodes?: boolean }) => Promise<void>;
+  onUpdate: (id: number, input: TaskUpdateInput) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onGenerate: (id: number) => Promise<void>;
   onPreview: (id: number) => Promise<void>;
@@ -379,6 +440,13 @@ function TaskRow({
       refresh_interval_seconds: Number(form.get("refresh_interval_seconds") || 3600),
       enabled: form.get("enabled") === "on",
       merge_default_pinned_nodes: form.get("merge_default_pinned_nodes") === "on",
+      include_global_rules: form.get("include_global_rules") === "on",
+      custom_rules_text: String(form.get("custom_rules_text") || ""),
+      rule_merge_mode: String(form.get("rule_merge_mode") || "custom_first") as RuleMergeMode,
+      custom_groups_text: String(form.get("custom_groups_text") || ""),
+      managed_config_enabled: form.get("managed_config_enabled") === "on",
+      managed_config_interval_seconds: Number(form.get("managed_config_interval_seconds") || 86400),
+      managed_config_strict: form.get("managed_config_strict") === "on",
     });
     setEditing(false);
   }
@@ -409,12 +477,25 @@ function TaskRow({
           <label>{t.forms.refreshSeconds}<input name="refresh_interval_seconds" type="number" defaultValue={task.RefreshIntervalSeconds} /></label>
           <label className="check-label"><input name="enabled" type="checkbox" defaultChecked={task.Enabled} /> {t.forms.enabled}</label>
           <label className="check-label"><input name="merge_default_pinned_nodes" type="checkbox" defaultChecked={task.MergeDefaultPinnedNodes} /> {t.forms.mergeDefaults}</label>
+          <label className="check-label"><input name="include_global_rules" type="checkbox" defaultChecked={task.IncludeGlobalRules} /> {t.forms.includeGlobalRules}</label>
+          <label>{t.forms.ruleMergeMode}<select name="rule_merge_mode" defaultValue={task.RuleMergeMode}>{ruleMergeOptions(t)}</select></label>
+          <label className="check-label"><input name="managed_config_enabled" type="checkbox" defaultChecked={task.ManagedConfigEnabled} /> {t.forms.managedConfig}</label>
+          <label>{t.forms.managedInterval}<input name="managed_config_interval_seconds" type="number" min="60" defaultValue={task.ManagedConfigIntervalSeconds || 86400} /></label>
+          <label className="check-label"><input name="managed_config_strict" type="checkbox" defaultChecked={task.ManagedConfigStrict} /> {t.forms.managedStrict}</label>
+          <label className="wide-field">{t.forms.customRules}<textarea name="custom_rules_text" rows={5} defaultValue={task.CustomRulesText} placeholder={t.placeholders.customRules} /></label>
+          <label className="wide-field">{t.forms.customGroups}<textarea name="custom_groups_text" rows={4} defaultValue={task.CustomGroupsText} placeholder={t.placeholders.customGroups} /></label>
           <button disabled={busy}><Save size={15} /> {busy ? t.saving : t.forms.save}</button>
           <button type="button" onClick={() => setEditing(false)}><X size={15} /> {t.forms.cancel}</button>
         </form>
       )}
     </div>
   );
+}
+
+function ruleMergeOptions(t: typeof translations[Language]) {
+  return (["custom_first", "upstream_first", "custom_first_dedupe", "upstream_first_dedupe"] as RuleMergeMode[]).map((mode) => (
+    <option key={mode} value={mode}>{t.ruleMergeModes[mode]}</option>
+  ));
 }
 
 function taskStatus(task: Task, busy: boolean, t: typeof translations[Language]) {

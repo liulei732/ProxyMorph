@@ -11,23 +11,35 @@ type User struct {
 }
 
 type ConversionTask struct {
-	ID                      int64
-	UserID                  int64
-	Name                    string
-	InputType               string
-	OutputType              string
-	SourceURL               string
-	Enabled                 bool
-	RefreshIntervalSeconds  int
-	MergeDefaultPinnedNodes bool
-	PinnedNodeOrderMode     string
-	SubscriptionToken       string
-	SubscriptionURL         string
-	LastSuccessAt           *time.Time
-	LastErrorAt             *time.Time
-	LastErrorMessage        string
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	ID                           int64
+	UserID                       int64
+	Name                         string
+	InputType                    string
+	OutputType                   string
+	SourceURL                    string
+	Enabled                      bool
+	RefreshIntervalSeconds       int
+	MergeDefaultPinnedNodes      bool
+	PinnedNodeOrderMode          string
+	SubscriptionToken            string
+	SubscriptionURL              string
+	LastSuccessAt                *time.Time
+	LastErrorAt                  *time.Time
+	LastErrorMessage             string
+	IncludeGlobalRules           bool
+	CustomRulesText              string
+	RuleMergeMode                string
+	CustomGroupsText             string
+	ManagedConfigEnabled         bool
+	ManagedConfigIntervalSeconds int
+	ManagedConfigStrict          bool
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+}
+
+type GlobalRuleConfig struct {
+	CustomRulesText string
+	RuleMergeMode   string
 }
 
 type PinnedNode struct {

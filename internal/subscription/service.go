@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -19,12 +20,14 @@ import (
 	"github.com/liulei/proxymorph/internal/nodes"
 	"github.com/liulei/proxymorph/internal/singbox"
 	"github.com/liulei/proxymorph/internal/storage"
+	"github.com/liulei/proxymorph/internal/tasks"
 )
 
 type Service struct {
 	db          *storage.DB
 	client      *http.Client
 	nodes       *nodes.Service
+	tasks       *tasks.Service
 	vlessRelay  *singbox.Manager
 	relayConfig config.VLESSRelayConfig
 }
@@ -33,7 +36,7 @@ func NewService(db *storage.DB, client *http.Client) *Service {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &Service{db: db, client: client, nodes: nodes.NewService(db)}
+	return &Service{db: db, client: client, nodes: nodes.NewService(db), tasks: tasks.NewService(db)}
 }
 
 func (s *Service) SetVLESSRelay(cfg config.VLESSRelayConfig) {
@@ -120,7 +123,18 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	} else {
 		doc.Groups = convert.FilterGroupsForNodes(doc.Groups, doc.Nodes)
 	}
-	output := convert.RenderSurge6(doc.Nodes, doc.Groups, doc.Rules)
+	surgeConfig, err := s.surgeConfig(task, relayHost)
+	if err != nil {
+		log.Printf("subscription task=%d stage=surge_config status=error error=%q", task.ID, err)
+		s.recordRun(task.ID, "error", err.Error())
+		return s.cachedOrError(task.ID, err)
+	}
+	output, err := convert.RenderSurge6WithConfig(doc.Nodes, doc.Groups, doc.Rules, surgeConfig)
+	if err != nil {
+		log.Printf("subscription task=%d stage=render status=error error=%q", task.ID, err)
+		s.recordRun(task.ID, "error", err.Error())
+		return "", err
+	}
 	if err := s.storeCache(task.ID, output); err != nil {
 		log.Printf("subscription task=%d stage=cache status=error error=%q", task.ID, err)
 		return "", err
@@ -163,20 +177,98 @@ func (s *Service) GenerateByTokenWithRelayHost(token, relayHost string) (string,
 
 func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 	var task storage.ConversionTask
-	var enabled, mergeDefaults int
+	var enabled, mergeDefaults, includeGlobalRules, managedEnabled, managedStrict int
 	err := s.db.SQL().QueryRow(`
 		SELECT id, user_id, name, input_type, output_type, source_url, enabled,
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
-			last_error_message
+			last_error_message,
+			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
+			managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
+			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
 		WHERE id = ?`, taskID).Scan(
 		&task.ID, &task.UserID, &task.Name, &task.InputType, &task.OutputType, &task.SourceURL,
 		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&task.LastErrorMessage,
+		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.CustomGroupsText,
+		&managedEnabled, &task.ManagedConfigIntervalSeconds, &managedStrict, &task.SubscriptionToken,
 	)
 	task.Enabled = enabled == 1
 	task.MergeDefaultPinnedNodes = mergeDefaults == 1
+	task.IncludeGlobalRules = includeGlobalRules == 1
+	task.ManagedConfigEnabled = managedEnabled == 1
+	task.ManagedConfigStrict = managedStrict == 1
+	if task.RuleMergeMode == "" {
+		task.RuleMergeMode = "custom_first"
+	}
+	if task.ManagedConfigIntervalSeconds == 0 {
+		task.ManagedConfigIntervalSeconds = 86400
+	}
 	return task, err
+}
+
+func (s *Service) surgeConfig(task storage.ConversionTask, relayHost string) (convert.SurgeConfig, error) {
+	customRules := make([]string, 0)
+	if task.IncludeGlobalRules {
+		global, err := s.tasks.GlobalRuleConfig()
+		if err != nil {
+			return convert.SurgeConfig{}, err
+		}
+		customRules = append(customRules, textLines(global.CustomRulesText)...)
+	}
+	customRules = append(customRules, textLines(task.CustomRulesText)...)
+
+	cfg := convert.SurgeConfig{
+		CustomRules:   customRules,
+		CustomGroups:  textLines(task.CustomGroupsText),
+		RuleMergeMode: task.RuleMergeMode,
+	}
+	if task.ManagedConfigEnabled {
+		cfg.ManagedConfigHeader = managedConfigHeader(task, relayHost)
+	}
+	return cfg, nil
+}
+
+func managedConfigHeader(task storage.ConversionTask, relayHost string) string {
+	if task.ManagedConfigIntervalSeconds == 0 {
+		task.ManagedConfigIntervalSeconds = 86400
+	}
+	return fmt.Sprintf("#!MANAGED-CONFIG %s interval=%d strict=%t",
+		taskSubscriptionURL(task, relayHost),
+		task.ManagedConfigIntervalSeconds,
+		task.ManagedConfigStrict,
+	)
+}
+
+func taskSubscriptionURL(task storage.ConversionTask, relayHost string) string {
+	token := strings.TrimSpace(task.SubscriptionToken)
+	query := url.Values{}
+	if name := strings.TrimSpace(task.Name); name != "" {
+		query.Set("name", name)
+	}
+	suffix := ""
+	if encoded := query.Encode(); encoded != "" {
+		suffix = "?" + encoded
+	}
+	if host := strings.TrimSpace(relayHost); host != "" {
+		return fmt.Sprintf("http://%s/sub/%s%s", host, token, suffix)
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PROXYMORPH_PUBLIC_BASE_URL")), "/")
+	if baseURL != "" {
+		return fmt.Sprintf("%s/sub/%s%s", baseURL, token, suffix)
+	}
+	return fmt.Sprintf("/sub/%s%s", token, suffix)
+}
+
+func textLines(text string) []string {
+	lines := strings.Split(text, "\n")
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func (s *Service) fetch(sourceURL string) ([]byte, error) {
