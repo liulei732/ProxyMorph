@@ -108,6 +108,10 @@ proxies:
     skip-cert-verify: true
     servername: sni.example.com
     flow: xtls-rprx-vision
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: public-key-value
+      short-id: short-id-value
     network: ws
     ws-opts:
       path: /proxy
@@ -127,6 +131,9 @@ rules:
 	}
 	if node.Params["network"] != "ws" || node.Params["ws_path"] != "/proxy" {
 		t.Fatalf("unexpected vless transport params: %#v", node.Params)
+	}
+	if node.Params["client_fingerprint"] != "chrome" || node.Params["reality_public_key"] != "public-key-value" || node.Params["reality_short_id"] != "short-id-value" {
+		t.Fatalf("unexpected vless reality params: %#v", node.Params)
 	}
 }
 

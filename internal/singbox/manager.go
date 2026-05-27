@@ -243,8 +243,21 @@ type singBoxOutbound struct {
 }
 
 type singBoxTLS struct {
-	Enabled    bool   `json:"enabled"`
-	ServerName string `json:"server_name,omitempty"`
+	Enabled    bool            `json:"enabled"`
+	ServerName string          `json:"server_name,omitempty"`
+	UTLS       *singBoxUTLS    `json:"utls,omitempty"`
+	Reality    *singBoxReality `json:"reality,omitempty"`
+}
+
+type singBoxUTLS struct {
+	Enabled     bool   `json:"enabled"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+type singBoxReality struct {
+	Enabled   bool   `json:"enabled"`
+	PublicKey string `json:"public_key,omitempty"`
+	ShortID   string `json:"short_id,omitempty"`
 }
 
 type singBoxTransport struct {
@@ -274,6 +287,16 @@ func vlessOutbound(tag string, node convert.Node) singBoxOutbound {
 	}
 	if tlsMode := node.Params["tls"]; tlsMode == "tls" || tlsMode == "reality" {
 		outbound.TLS = &singBoxTLS{Enabled: true, ServerName: node.Params["sni"]}
+		if fingerprint := node.Params["client_fingerprint"]; fingerprint != "" {
+			outbound.TLS.UTLS = &singBoxUTLS{Enabled: true, Fingerprint: fingerprint}
+		}
+		if publicKey := node.Params["reality_public_key"]; publicKey != "" {
+			outbound.TLS.Reality = &singBoxReality{
+				Enabled:   true,
+				PublicKey: publicKey,
+				ShortID:   node.Params["reality_short_id"],
+			}
+		}
 	}
 	switch node.Params["network"] {
 	case "ws":

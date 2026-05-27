@@ -150,6 +150,7 @@ func parseVLESS(u *url.URL) (convert.Node, error) {
 	copyParam(params, "grpc_service_name", query.Get("serviceName"))
 	copyParam(params, "reality_public_key", query.Get("pbk"))
 	copyParam(params, "reality_short_id", query.Get("sid"))
+	copyParam(params, "client_fingerprint", query.Get("fp"))
 	return convert.Node{
 		Name:     fallbackName(name, u.Hostname()),
 		Protocol: "vless",

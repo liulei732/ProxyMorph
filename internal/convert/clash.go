@@ -67,6 +67,11 @@ func ParseClash(data []byte) (Document, error) {
 		}
 		if node.Protocol == "vless" {
 			copyClashParam(node.Params, "flow", proxy["flow"])
+			copyClashParam(node.Params, "client_fingerprint", proxy["client-fingerprint"])
+			if realityOpts, ok := proxy["reality-opts"].(map[string]any); ok {
+				copyClashParam(node.Params, "reality_public_key", realityOpts["public-key"])
+				copyClashParam(node.Params, "reality_short_id", realityOpts["short-id"])
+			}
 		}
 		if node.Protocol == "vmess" {
 			copyClashParam(node.Params, "alter_id", proxy["alterId"])
