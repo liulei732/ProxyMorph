@@ -15,16 +15,17 @@ ProxyMorph supports two rule configuration levels:
 - Global rule configuration: reusable rules that tasks can optionally include.
 - Task rule configuration: task-specific rules that always participate in that task's generated profile.
 
-Each rule configuration contains:
+Global rule configuration contains:
 
 - `custom_rules_text`: newline-separated Surge rule lines without a `[Rule]` section header.
-- `rule_merge_mode`: how to merge custom rules with upstream subscription rules.
 
-Each task contains:
+Task rule configuration contains:
 
 - `include_global_rules`: whether to include global rules in this task's rule set.
 - `custom_rules_text`: task-specific rules. These are always included, even when global rules are disabled.
 - `rule_merge_mode`: how to merge the combined custom rules with upstream subscription rules.
+
+Global configuration does not own a merge mode. Merge behavior is always task-specific because the task decides how its effective custom rule set should combine with upstream rules.
 
 The effective custom rule set for a task is:
 

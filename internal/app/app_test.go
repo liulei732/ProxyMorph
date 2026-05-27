@@ -81,7 +81,7 @@ func TestRuleConfigEndpointRoundTrip(t *testing.T) {
 	}
 	cookie := loginRes.Result().Cookies()[0]
 
-	putReq := httptest.NewRequest(http.MethodPut, "/api/rule-config", bytes.NewBufferString(`{"custom_rules_text":"DOMAIN,global.example,DIRECT","rule_merge_mode":"upstream_first_dedupe"}`))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/rule-config", bytes.NewBufferString(`{"custom_rules_text":"DOMAIN,global.example,DIRECT"}`))
 	putReq.AddCookie(cookie)
 	putRes := httptest.NewRecorder()
 	app.Handler().ServeHTTP(putRes, putReq)
@@ -98,12 +98,11 @@ func TestRuleConfigEndpointRoundTrip(t *testing.T) {
 	}
 	var payload struct {
 		CustomRulesText string
-		RuleMergeMode   string
 	}
 	if err := json.NewDecoder(getRes.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.CustomRulesText != "DOMAIN,global.example,DIRECT" || payload.RuleMergeMode != "upstream_first_dedupe" {
+	if payload.CustomRulesText != "DOMAIN,global.example,DIRECT" {
 		t.Fatalf("unexpected config: %#v", payload)
 	}
 }

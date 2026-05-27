@@ -39,7 +39,6 @@ type ConversionTask struct {
 
 type GlobalRuleConfig struct {
 	CustomRulesText string
-	RuleMergeMode   string
 }
 
 type PinnedNode struct {

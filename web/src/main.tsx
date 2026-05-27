@@ -31,7 +31,6 @@ type RuleMergeMode = "custom_first" | "upstream_first" | "custom_first_dedupe" |
 
 type RuleConfig = {
   CustomRulesText: string;
-  RuleMergeMode: RuleMergeMode;
 };
 
 type PinnedNode = {
@@ -51,7 +50,7 @@ function App() {
   const [language, setLanguage] = React.useState<Language>(() => getInitialLanguage(localStorage.getItem(languageStorageKey)));
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [nodes, setNodes] = React.useState<PinnedNode[]>([]);
-  const [ruleConfig, setRuleConfig] = React.useState<RuleConfig>({ CustomRulesText: "", RuleMergeMode: "custom_first" });
+  const [ruleConfig, setRuleConfig] = React.useState<RuleConfig>({ CustomRulesText: "" });
   const [error, setError] = React.useState("");
   const [toast, setToast] = React.useState("");
   const [busyTaskID, setBusyTaskID] = React.useState<number | null>(null);
@@ -97,7 +96,7 @@ function App() {
     const [nextTasks, nextNodes, nextRuleConfig] = await Promise.all([
       api<Task[]>("/api/tasks").catch(() => []),
       api<PinnedNode[]>("/api/nodes").catch(() => []),
-      api<RuleConfig>("/api/rule-config").catch(() => ({ CustomRulesText: "", RuleMergeMode: "custom_first" as RuleMergeMode })),
+      api<RuleConfig>("/api/rule-config").catch(() => ({ CustomRulesText: "" })),
     ]);
     setTasks(nextTasks);
     setNodes(nextNodes);
@@ -169,7 +168,6 @@ function App() {
         method: "PUT",
         body: JSON.stringify({
           custom_rules_text: String(form.get("custom_rules_text") || ""),
-          rule_merge_mode: String(form.get("rule_merge_mode") || "custom_first"),
         }),
       });
       setRuleConfig(next);
@@ -324,7 +322,6 @@ function App() {
           <section className="stack">
             <form className="panel settings-form" onSubmit={updateRuleConfig}>
               <h3>{t.settings.globalRuleTitle}</h3>
-              <label>{t.forms.ruleMergeMode}<select name="rule_merge_mode" defaultValue={ruleConfig.RuleMergeMode}>{ruleMergeOptions(t)}</select></label>
               <label className="wide-field">{t.forms.customRules}<textarea name="custom_rules_text" rows={8} defaultValue={ruleConfig.CustomRulesText} placeholder={t.placeholders.customRules} /></label>
               <button><Save size={15} /> {t.forms.save}</button>
             </form>

@@ -4,7 +4,9 @@
 
 **Goal:** Implement global and per-task Surge rule configuration, custom policy groups, and optional MANAGED-CONFIG output.
 
-**Architecture:** Add structured config fields to SQLite and task models, then keep all Surge rendering behavior in `internal/convert`. The subscription service resolves the effective task config, merges rules/groups before rendering, and the React UI exposes text-based controls for global defaults and per-task overrides.
+**Architecture:** Add structured config fields to SQLite and task models, then keep all Surge rendering behavior in `internal/convert`. The subscription service resolves the effective task config, merges rules/groups before rendering, and the React UI exposes text-based controls for global reusable rules and per-task merge behavior.
+
+**Refinement:** Global rule configuration only stores global reusable rule text. Rule merge mode is task-specific only. Existing storage can keep the legacy global merge setting for compatibility, but API and UI should not expose it.
 
 **Tech Stack:** Go, SQLite, React, Vite, embedded frontend assets, Surge 6 profile syntax.
 
@@ -37,6 +39,7 @@
 - [x] Extend `storage.ConversionTask` with the new fields.
 - [x] Extend task create/update/list/get scan paths.
 - [x] Add global rule config service methods in `tasks.Service`.
+- [ ] Remove global rule merge mode from API/UI while keeping storage compatibility.
 - [x] Test defaults for existing tasks and settings.
 - [x] Run `go test ./internal/tasks ./internal/storage`.
 
@@ -76,7 +79,7 @@
 
 - [x] Add `RuleConfig` and extended `Task` TypeScript types.
 - [x] Fetch global rule config during refresh.
-- [x] Add Settings panel controls for global rules and merge mode.
+- [x] Add Settings panel controls for global rules.
 - [x] Add per-task advanced config controls: include global rules, merge mode, custom rules, custom groups, MANAGED-CONFIG interval/strict.
 - [x] Add save toasts and error toasts for global and task config.
 - [x] Build frontend and copy `web/dist` to `internal/web/dist`.

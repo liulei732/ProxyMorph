@@ -172,17 +172,16 @@ func TestGlobalRuleConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GlobalRuleConfig returned error: %v", err)
 	}
-	if initial.CustomRulesText != "" || initial.RuleMergeMode != "custom_first" {
+	if initial.CustomRulesText != "" {
 		t.Fatalf("unexpected initial config: %#v", initial)
 	}
 	updated, err := service.UpdateGlobalRuleConfig(GlobalRuleConfigInput{
 		CustomRulesText: "DOMAIN,global.example,DIRECT",
-		RuleMergeMode:   "custom_first_dedupe",
 	})
 	if err != nil {
 		t.Fatalf("UpdateGlobalRuleConfig returned error: %v", err)
 	}
-	if updated.CustomRulesText != "DOMAIN,global.example,DIRECT" || updated.RuleMergeMode != "custom_first_dedupe" {
+	if updated.CustomRulesText != "DOMAIN,global.example,DIRECT" {
 		t.Fatalf("unexpected updated config: %#v", updated)
 	}
 }

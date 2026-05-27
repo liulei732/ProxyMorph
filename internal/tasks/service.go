@@ -41,7 +41,6 @@ type UpdateInput struct {
 
 type GlobalRuleConfigInput struct {
 	CustomRulesText string `json:"custom_rules_text"`
-	RuleMergeMode   string `json:"rule_merge_mode"`
 }
 
 func NewService(db *storage.DB) *Service {
@@ -270,13 +269,12 @@ func randomToken() (string, error) {
 }
 
 func (s *Service) GlobalRuleConfig() (storage.GlobalRuleConfig, error) {
-	values, err := s.settings("global_custom_rules_text", "global_rule_merge_mode")
+	values, err := s.settings("global_custom_rules_text")
 	if err != nil {
 		return storage.GlobalRuleConfig{}, err
 	}
 	return storage.GlobalRuleConfig{
 		CustomRulesText: values["global_custom_rules_text"],
-		RuleMergeMode:   normalizeRuleMergeMode(values["global_rule_merge_mode"]),
 	}, nil
 }
 
@@ -284,11 +282,7 @@ func (s *Service) UpdateGlobalRuleConfig(input GlobalRuleConfigInput) (storage.G
 	if err := validateCustomRulesText(input.CustomRulesText); err != nil {
 		return storage.GlobalRuleConfig{}, err
 	}
-	mode := normalizeRuleMergeMode(input.RuleMergeMode)
 	if err := s.setSetting("global_custom_rules_text", input.CustomRulesText); err != nil {
-		return storage.GlobalRuleConfig{}, err
-	}
-	if err := s.setSetting("global_rule_merge_mode", mode); err != nil {
 		return storage.GlobalRuleConfig{}, err
 	}
 	return s.GlobalRuleConfig()
