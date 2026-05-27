@@ -6,7 +6,7 @@
 
 **Architecture:** Add structured config fields to SQLite and task models, then keep all Surge rendering behavior in `internal/convert`. The subscription service resolves the effective task config, merges rules/groups before rendering, and the React UI exposes text-based controls for global reusable rules and per-task merge behavior.
 
-**Refinement:** Global rule configuration only stores global reusable rule text. Rule merge mode is task-specific only. Existing storage can keep the legacy global merge setting for compatibility, but API and UI should not expose it.
+**Refinement:** Global rule configuration only stores global reusable rule text. Rule merge mode is task-specific only. No legacy global merge setting should remain in storage, API, UI, or tests.
 
 **Tech Stack:** Go, SQLite, React, Vite, embedded frontend assets, Surge 6 profile syntax.
 
@@ -39,7 +39,7 @@
 - [x] Extend `storage.ConversionTask` with the new fields.
 - [x] Extend task create/update/list/get scan paths.
 - [x] Add global rule config service methods in `tasks.Service`.
-- [ ] Remove global rule merge mode from API/UI while keeping storage compatibility.
+- [x] Remove global rule merge mode from storage, API, UI, and tests.
 - [x] Test defaults for existing tasks and settings.
 - [x] Run `go test ./internal/tasks ./internal/storage`.
 

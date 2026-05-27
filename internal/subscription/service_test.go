@@ -272,7 +272,7 @@ func TestGenerateAppliesTaskAndGlobalRuleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.SQL().Exec(`INSERT INTO app_settings (key, value) VALUES ('global_custom_rules_text', 'DOMAIN,global.example,DIRECT'), ('global_rule_merge_mode', 'upstream_first')`)
+	_, err = db.SQL().Exec(`INSERT INTO app_settings (key, value) VALUES ('global_custom_rules_text', 'DOMAIN,global.example,DIRECT')`)
 	if err != nil {
 		t.Fatal(err)
 	}

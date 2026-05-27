@@ -101,6 +101,9 @@ func (db *DB) Migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	if _, err := db.sql.ExecContext(ctx, `DELETE FROM app_settings WHERE key = 'global_rule_merge_mode'`); err != nil {
+		return err
+	}
 	return nil
 }
 
