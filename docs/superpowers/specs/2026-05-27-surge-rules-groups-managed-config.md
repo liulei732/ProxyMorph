@@ -12,13 +12,26 @@ This feature lets users define reusable global rule settings and per-task rule s
 
 ProxyMorph supports two rule configuration levels:
 
-- Global rule configuration: the default used by tasks unless overridden.
-- Task rule configuration: a task can inherit global rules or use its own rules.
+- Global rule configuration: reusable rules that tasks can optionally include.
+- Task rule configuration: task-specific rules that always participate in that task's generated profile.
 
 Each rule configuration contains:
 
 - `custom_rules_text`: newline-separated Surge rule lines without a `[Rule]` section header.
 - `rule_merge_mode`: how to merge custom rules with upstream subscription rules.
+
+Each task contains:
+
+- `include_global_rules`: whether to include global rules in this task's rule set.
+- `custom_rules_text`: task-specific rules. These are always included, even when global rules are disabled.
+- `rule_merge_mode`: how to merge the combined custom rules with upstream subscription rules.
+
+The effective custom rule set for a task is:
+
+- If `include_global_rules` is true: global custom rules followed by task custom rules.
+- If `include_global_rules` is false: task custom rules only.
+
+Task custom rules are never replaced by global rules.
 
 Supported merge modes:
 
@@ -79,7 +92,7 @@ upstream groups or automatic Proxy group
 custom task policy groups
 
 [Rule]
-merged rules according to rule_merge_mode
+merged upstream rules and effective custom rules according to rule_merge_mode
 FINAL,<default policy>
 ```
 
@@ -90,7 +103,8 @@ Backend should expose endpoints to read and update global rule configuration and
 Frontend should add a configuration surface for:
 
 - Global rules.
-- Per-task rule inheritance or override.
+- Per-task rule configuration.
+- An `include_global_rules` switch on each task.
 - Rule merge mode selection.
 - Custom policy group text.
 - MANAGED-CONFIG enablement, interval, and strict mode.
@@ -115,8 +129,9 @@ Backend should normalize:
 
 Required tests:
 
-- Global rule config is used when a task inherits it.
-- Task rule config overrides global config.
+- Global rule config is included when a task enables `include_global_rules`.
+- Task rule config is still included when `include_global_rules` is disabled.
+- Task and global rules are both included when `include_global_rules` is enabled.
 - All four rule merge modes render in the expected order.
 - Dedupe modes preserve the selected priority source.
 - MANAGED-CONFIG renders as the first line with encoded task URL.
