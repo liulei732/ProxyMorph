@@ -1,11 +1,15 @@
 package singbox
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,13 +18,24 @@ import (
 )
 
 type Manager struct {
-	cfg config.VLESSRelayConfig
-	mu  sync.Mutex
-	cmd *exec.Cmd
+	cfg       config.VLESSRelayConfig
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	done      chan error
+	logOutput io.Writer
 }
 
 func NewManager(cfg config.VLESSRelayConfig) *Manager {
-	return &Manager{cfg: cfg}
+	return &Manager{cfg: cfg, logOutput: log.Writer()}
+}
+
+func (m *Manager) SetLogOutput(output io.Writer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if output == nil {
+		output = log.Writer()
+	}
+	m.logOutput = output
 }
 
 func (m *Manager) Start() error {
@@ -36,11 +51,29 @@ func (m *Manager) Start() error {
 		return err
 	}
 	cmd := exec.Command(m.cfg.SingBoxPath, "run", "-c", m.cfg.ConfigPath)
+	var earlyOutput bytes.Buffer
+	cmd.Stdout = io.MultiWriter(m.logOutput, &earlyOutput)
+	cmd.Stderr = io.MultiWriter(m.logOutput, &earlyOutput)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	m.cmd = cmd
-	return nil
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	m.done = done
+	select {
+	case err := <-done:
+		m.cmd = nil
+		m.done = nil
+		if err != nil {
+			return fmt.Errorf("sing-box exited after start: %w: %s", err, strings.TrimSpace(earlyOutput.String()))
+		}
+		return fmt.Errorf("sing-box exited after start: %s", strings.TrimSpace(earlyOutput.String()))
+	case <-time.After(1 * time.Second):
+		return nil
+	}
 }
 
 func (m *Manager) Stop() error {
@@ -55,13 +88,17 @@ func (m *Manager) stopLocked() error {
 	}
 	process := m.cmd.Process
 	_ = process.Kill()
-	done := make(chan error, 1)
-	go func() {
-		done <- m.cmd.Wait()
-	}()
+	done := m.done
+	if done == nil {
+		done = make(chan error, 1)
+		go func() {
+			done <- m.cmd.Wait()
+		}()
+	}
 	select {
 	case err := <-done:
 		m.cmd = nil
+		m.done = nil
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				_ = exitErr
@@ -72,6 +109,7 @@ func (m *Manager) stopLocked() error {
 		return nil
 	case <-time.After(2 * time.Second):
 		m.cmd = nil
+		m.done = nil
 		return nil
 	}
 }

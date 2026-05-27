@@ -1,6 +1,7 @@
 package singbox
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -71,6 +72,63 @@ func TestManagerStartRestartsSingBoxWithGeneratedConfig(t *testing.T) {
 	}
 }
 
+func TestManagerStartReturnsEarlyExitOutput(t *testing.T) {
+	dir := t.TempDir()
+	binPath := filepath.Join(dir, "fake-sing-box")
+	script := "#!/bin/sh\necho 'bad config' >&2\nexit 1\n"
+	if err := os.WriteFile(binPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.com",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19000,
+		Password:    "secret",
+		SingBoxPath: binPath,
+		ConfigPath:  filepath.Join(dir, "sing-box.json"),
+	})
+	if _, err := manager.Configure([]convert.Node{{Name: "Edge", Protocol: "vless", Server: "edge.example", Port: 443, Params: map[string]string{"uuid": "uuid"}}}); err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+	err := manager.Start()
+	if err == nil || !strings.Contains(err.Error(), "sing-box exited") || !strings.Contains(err.Error(), "bad config") {
+		t.Fatalf("error = %v, want early exit output", err)
+	}
+}
+
+func TestManagerStartWritesProcessLogs(t *testing.T) {
+	dir := t.TempDir()
+	binPath := filepath.Join(dir, "fake-sing-box")
+	script := "#!/bin/sh\necho 'relay ready' >&2\nexec tail -f /dev/null\n"
+	if err := os.WriteFile(binPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	manager := NewManager(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.com",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19000,
+		Password:    "secret",
+		SingBoxPath: binPath,
+		ConfigPath:  filepath.Join(dir, "sing-box.json"),
+	})
+	manager.SetLogOutput(&logs)
+	if _, err := manager.Configure([]convert.Node{{Name: "Edge", Protocol: "vless", Server: "edge.example", Port: 443, Params: map[string]string{"uuid": "uuid"}}}); err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	defer manager.Stop()
+	if !waitForString(&logs, "relay ready") {
+		t.Fatalf("expected sing-box output in logs, got %q", logs.String())
+	}
+}
+
 func waitForFile(path string) ([]byte, error) {
 	var lastErr error
 	for range 20 {
@@ -82,6 +140,16 @@ func waitForFile(path string) ([]byte, error) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	return nil, lastErr
+}
+
+func waitForString(buf *bytes.Buffer, value string) bool {
+	for range 20 {
+		if strings.Contains(buf.String(), value) {
+			return true
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return false
 }
 
 func TestConvertVLESSSimpleTLS(t *testing.T) {
