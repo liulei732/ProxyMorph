@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ func (s *Service) Create(userID int64, input CreateInput) (storage.ConversionTas
 	if input.RefreshIntervalSeconds == 0 {
 		input.RefreshIntervalSeconds = 3600
 	}
+	input.Name = defaultTaskName(input.Name, input.SourceURL)
 	res, err := s.db.SQL().Exec(`
 		INSERT INTO conversion_tasks (
 			user_id, name, input_type, output_type, source_url, enabled,
@@ -240,7 +242,7 @@ func scanTask(row taskScanner) (storage.ConversionTask, error) {
 	task.LastSuccessAt = parseOptionalTime(lastSuccessAt)
 	task.LastErrorAt = parseOptionalTime(lastErrorAt)
 	if task.SubscriptionToken != "" {
-		task.SubscriptionURL = subscriptionURL(task.SubscriptionToken)
+		task.SubscriptionURL = subscriptionURL(task.SubscriptionToken, task.Name)
 	}
 	return task, err
 }
@@ -258,10 +260,29 @@ func parseOptionalTime(value sql.NullString) *time.Time {
 	return nil
 }
 
-func subscriptionURL(token string) string {
-	baseURL := strings.TrimRight(os.Getenv("PROXYMORPH_PUBLIC_BASE_URL"), "/")
-	if baseURL == "" {
-		return fmt.Sprintf("/sub/%s", token)
+func defaultTaskName(name, sourceURL string) string {
+	if strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
 	}
-	return fmt.Sprintf("%s/sub/%s", baseURL, token)
+	parsed, err := url.Parse(sourceURL)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(parsed.Query().Get("name"))
+}
+
+func subscriptionURL(token, name string) string {
+	baseURL := strings.TrimRight(os.Getenv("PROXYMORPH_PUBLIC_BASE_URL"), "/")
+	query := url.Values{}
+	if strings.TrimSpace(name) != "" {
+		query.Set("name", strings.TrimSpace(name))
+	}
+	suffix := ""
+	if encoded := query.Encode(); encoded != "" {
+		suffix = "?" + encoded
+	}
+	if baseURL == "" {
+		return fmt.Sprintf("/sub/%s%s", token, suffix)
+	}
+	return fmt.Sprintf("%s/sub/%s%s", baseURL, token, suffix)
 }

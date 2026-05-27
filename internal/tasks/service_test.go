@@ -8,6 +8,7 @@ import (
 )
 
 func TestCreateAndListTasks(t *testing.T) {
+	t.Setenv("PROXYMORPH_PUBLIC_BASE_URL", "")
 	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -33,12 +34,42 @@ func TestCreateAndListTasks(t *testing.T) {
 	if tasks[0].SubscriptionURL == "" {
 		t.Fatalf("expected subscription URL: %#v", tasks[0])
 	}
+	if tasks[0].SubscriptionURL != "/sub/"+tasks[0].SubscriptionToken+"?name=Main" {
+		t.Fatalf("SubscriptionURL = %q, want token URL with name", tasks[0].SubscriptionURL)
+	}
 	var taskID int64
 	if err := db.SQL().QueryRow(`SELECT task_id FROM subscription_tokens WHERE token = ?`, tasks[0].SubscriptionToken).Scan(&taskID); err != nil {
 		t.Fatalf("expected stored subscription token: %v", err)
 	}
 	if taskID != task.ID {
 		t.Fatalf("token task_id = %d, want %d", taskID, task.ID)
+	}
+}
+
+func TestCreateUsesNameQueryWhenNameIsBlank(t *testing.T) {
+	t.Setenv("PROXYMORPH_PUBLIC_BASE_URL", "https://proxy.example.test")
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+
+	task, err := service.Create(userID, CreateInput{
+		Name:                   "  ",
+		SourceURL:              "https://upstream.example.test/sub?token=abc&name=%E9%A6%99%E6%B8%AF%20A",
+		RefreshIntervalSeconds: 3600,
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if task.Name != "香港 A" {
+		t.Fatalf("Name = %q, want name query value", task.Name)
+	}
+	wantPrefix := "https://proxy.example.test/sub/" + task.SubscriptionToken + "?name=%E9%A6%99%E6%B8%AF+A"
+	if task.SubscriptionURL != wantPrefix {
+		t.Fatalf("SubscriptionURL = %q, want %q", task.SubscriptionURL, wantPrefix)
 	}
 }
 
