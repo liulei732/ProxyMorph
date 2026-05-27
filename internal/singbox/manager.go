@@ -233,6 +233,7 @@ type singBoxUser struct {
 type singBoxOutbound struct {
 	Type           string            `json:"type"`
 	Tag            string            `json:"tag"`
+	Network        string            `json:"network,omitempty"`
 	Server         string            `json:"server,omitempty"`
 	ServerPort     int               `json:"server_port,omitempty"`
 	UUID           string            `json:"uuid,omitempty"`
@@ -245,6 +246,8 @@ type singBoxOutbound struct {
 type singBoxTLS struct {
 	Enabled    bool            `json:"enabled"`
 	ServerName string          `json:"server_name,omitempty"`
+	Insecure   bool            `json:"insecure,omitempty"`
+	ALPN       []string        `json:"alpn,omitempty"`
 	UTLS       *singBoxUTLS    `json:"utls,omitempty"`
 	Reality    *singBoxReality `json:"reality,omitempty"`
 }
@@ -280,13 +283,17 @@ func vlessOutbound(tag string, node convert.Node) singBoxOutbound {
 	outbound := singBoxOutbound{
 		Type:       "vless",
 		Tag:        tag,
+		Network:    fallbackNetwork(node.Params["network"]),
 		Server:     node.Server,
 		ServerPort: node.Port,
 		UUID:       node.Params["uuid"],
 		Flow:       node.Params["flow"],
 	}
 	if tlsMode := node.Params["tls"]; tlsMode == "tls" || tlsMode == "reality" {
-		outbound.TLS = &singBoxTLS{Enabled: true, ServerName: node.Params["sni"]}
+		outbound.TLS = &singBoxTLS{Enabled: true, ServerName: node.Params["sni"], Insecure: node.Params["skip_cert_verify"] == "true"}
+		if alpn := splitCSV(node.Params["alpn"]); len(alpn) > 0 {
+			outbound.TLS.ALPN = alpn
+		}
 		if fingerprint := node.Params["client_fingerprint"]; fingerprint != "" {
 			outbound.TLS.UTLS = &singBoxUTLS{Enabled: true, Fingerprint: fingerprint}
 		}
@@ -309,4 +316,22 @@ func vlessOutbound(tag string, node convert.Node) singBoxOutbound {
 		outbound.Transport = &singBoxTransport{Type: "grpc", ServiceName: node.Params["grpc_service_name"]}
 	}
 	return outbound
+}
+
+func fallbackNetwork(network string) string {
+	if network == "" || network == "ws" || network == "grpc" {
+		return "tcp"
+	}
+	return network
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

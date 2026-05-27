@@ -47,7 +47,7 @@ func TestParseTrojanURIWithWebSocketTransport(t *testing.T) {
 }
 
 func TestParseVLESSURI(t *testing.T) {
-	node, err := ParseURI("vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy&host=cdn.example.com#Edge")
+	node, err := ParseURI("vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy&host=cdn.example.com&alpn=h2,http/1.1&allowInsecure=1#Edge")
 	if err != nil {
 		t.Fatalf("ParseURI returned error: %v", err)
 	}
@@ -59,6 +59,9 @@ func TestParseVLESSURI(t *testing.T) {
 	}
 	if node.Params["network"] != "ws" || node.Params["ws_path"] != "/proxy" || node.Params["ws_host"] != "cdn.example.com" {
 		t.Fatalf("unexpected transport params: %#v", node.Params)
+	}
+	if node.Params["alpn"] != "h2,http/1.1" || node.Params["skip_cert_verify"] != "true" {
+		t.Fatalf("unexpected tls params: %#v", node.Params)
 	}
 }
 

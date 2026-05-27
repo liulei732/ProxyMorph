@@ -132,6 +132,9 @@ rules:
 	if node.Params["network"] != "ws" || node.Params["ws_path"] != "/proxy" {
 		t.Fatalf("unexpected vless transport params: %#v", node.Params)
 	}
+	if node.Params["tls"] != "reality" {
+		t.Fatalf("tls = %q, want reality when reality-opts are present", node.Params["tls"])
+	}
 	if node.Params["client_fingerprint"] != "chrome" || node.Params["reality_public_key"] != "public-key-value" || node.Params["reality_short_id"] != "short-id-value" {
 		t.Fatalf("unexpected vless reality params: %#v", node.Params)
 	}

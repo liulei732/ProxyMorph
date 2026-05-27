@@ -151,6 +151,10 @@ func parseVLESS(u *url.URL) (convert.Node, error) {
 	copyParam(params, "reality_public_key", query.Get("pbk"))
 	copyParam(params, "reality_short_id", query.Get("sid"))
 	copyParam(params, "client_fingerprint", query.Get("fp"))
+	copyParam(params, "alpn", query.Get("alpn"))
+	if query.Get("allowInsecure") == "1" || strings.EqualFold(query.Get("allowInsecure"), "true") {
+		params["skip_cert_verify"] = "true"
+	}
 	return convert.Node{
 		Name:     fallbackName(name, u.Hostname()),
 		Protocol: "vless",
