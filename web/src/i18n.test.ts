@@ -24,4 +24,10 @@ describe("i18n", () => {
     assert.equal(translations.zh.tabs.overview, "概览");
     assert.equal(translations.en.tabs.overview, "Overview");
   });
+
+  it("translates managed config controls", () => {
+    assert.equal(translations.zh.forms.managedConfigMode, "MANAGED-CONFIG");
+    assert.equal(translations.zh.managedConfigModes.global, "跟随全局");
+    assert.equal(translations.en.managedConfigModes.global, "Follow global");
+  });
 });

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,14 +37,25 @@ type UpdateInput struct {
 	RuleMergeMode                *string `json:"rule_merge_mode"`
 	CustomGroupsText             *string `json:"custom_groups_text"`
 	VLESSRelayMode               *string `json:"vless_relay_mode"`
-	ManagedConfigEnabled         *bool   `json:"managed_config_enabled"`
+	ManagedConfigMode            *string `json:"managed_config_mode"`
+	ManagedConfigURLMode         *string `json:"managed_config_url_mode"`
+	ManagedConfigCustomURL       *string `json:"managed_config_custom_url"`
+	ManagedConfigIntervalMode    *string `json:"managed_config_interval_mode"`
 	ManagedConfigIntervalSeconds *int    `json:"managed_config_interval_seconds"`
-	ManagedConfigStrict          *bool   `json:"managed_config_strict"`
+	ManagedConfigStrictMode      *string `json:"managed_config_strict_mode"`
 }
 
 type GlobalRuleConfigInput struct {
 	CustomRulesText   string `json:"custom_rules_text"`
 	VLESSRelayEnabled bool   `json:"vless_relay_enabled"`
+}
+
+type ManagedConfigDefaultsInput struct {
+	Enabled         bool   `json:"enabled"`
+	URLMode         string `json:"url_mode"`
+	CustomURL       string `json:"custom_url"`
+	IntervalSeconds int    `json:"interval_seconds"`
+	Strict          bool   `json:"strict"`
 }
 
 func NewService(db *storage.DB) *Service {
@@ -128,14 +140,23 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 	if input.VLESSRelayMode != nil {
 		task.VLESSRelayMode = normalizeVLESSRelayMode(*input.VLESSRelayMode)
 	}
-	if input.ManagedConfigEnabled != nil {
-		task.ManagedConfigEnabled = *input.ManagedConfigEnabled
+	if input.ManagedConfigMode != nil {
+		task.ManagedConfigMode = normalizeTriStateMode(*input.ManagedConfigMode)
+	}
+	if input.ManagedConfigURLMode != nil {
+		task.ManagedConfigURLMode = normalizeTaskManagedURLMode(*input.ManagedConfigURLMode)
+	}
+	if input.ManagedConfigCustomURL != nil {
+		task.ManagedConfigCustomURL = strings.TrimSpace(*input.ManagedConfigCustomURL)
+	}
+	if input.ManagedConfigIntervalMode != nil {
+		task.ManagedConfigIntervalMode = normalizeIntervalMode(*input.ManagedConfigIntervalMode)
 	}
 	if input.ManagedConfigIntervalSeconds != nil {
 		task.ManagedConfigIntervalSeconds = *input.ManagedConfigIntervalSeconds
 	}
-	if input.ManagedConfigStrict != nil {
-		task.ManagedConfigStrict = *input.ManagedConfigStrict
+	if input.ManagedConfigStrictMode != nil {
+		task.ManagedConfigStrictMode = normalizeTriStateMode(*input.ManagedConfigStrictMode)
 	}
 	enabled := 0
 	if task.Enabled {
@@ -146,19 +167,20 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 		mergeDefaults = 1
 	}
 	includeGlobalRules := boolToInt(task.IncludeGlobalRules)
-	managedEnabled := boolToInt(task.ManagedConfigEnabled)
-	managedStrict := boolToInt(task.ManagedConfigStrict)
 	_, err = s.db.SQL().Exec(`
 		UPDATE conversion_tasks
 		SET name = ?, source_url = ?, refresh_interval_seconds = ?, enabled = ?,
 			merge_default_pinned_nodes = ?, include_global_rules = ?, custom_rules_text = ?,
-			rule_merge_mode = ?, custom_groups_text = ?, vless_relay_mode = ?, managed_config_enabled = ?,
-			managed_config_interval_seconds = ?, managed_config_strict = ?,
+			rule_merge_mode = ?, custom_groups_text = ?, vless_relay_mode = ?,
+			managed_config_mode = ?, managed_config_url_mode = ?, managed_config_custom_url = ?,
+			managed_config_interval_mode = ?, managed_config_interval_seconds = ?, managed_config_strict_mode = ?,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = ? AND id = ?`,
 		task.Name, task.SourceURL, task.RefreshIntervalSeconds, enabled, mergeDefaults,
 		includeGlobalRules, task.CustomRulesText, task.RuleMergeMode, task.CustomGroupsText,
-		task.VLESSRelayMode, managedEnabled, task.ManagedConfigIntervalSeconds, managedStrict, userID, id,
+		task.VLESSRelayMode, task.ManagedConfigMode, task.ManagedConfigURLMode, task.ManagedConfigCustomURL,
+		task.ManagedConfigIntervalMode, task.ManagedConfigIntervalSeconds, task.ManagedConfigStrictMode,
+		userID, id,
 	)
 	if err != nil {
 		return storage.ConversionTask{}, err
@@ -201,7 +223,8 @@ func (s *Service) List(userID int64) ([]storage.ConversionTask, error) {
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
-			vless_relay_mode, managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
+			vless_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
+			managed_config_interval_mode, managed_config_interval_seconds, managed_config_strict_mode,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
 		WHERE user_id = ?
@@ -243,7 +266,8 @@ func (s *Service) get(userID, id int64) (storage.ConversionTask, error) {
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
-			vless_relay_mode, managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
+			vless_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
+			managed_config_interval_mode, managed_config_interval_seconds, managed_config_strict_mode,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
 		WHERE user_id = ? AND id = ?`, userID, id)
@@ -307,6 +331,61 @@ func (s *Service) VLESSRelayEnabled() (bool, error) {
 	return settingBool(values["vless_relay_enabled"]), nil
 }
 
+func (s *Service) ManagedConfigDefaults() (storage.ManagedConfigDefaults, error) {
+	values, err := s.settings(
+		"managed_config_enabled",
+		"managed_config_url_mode",
+		"managed_config_custom_url",
+		"managed_config_interval_seconds",
+		"managed_config_strict",
+	)
+	if err != nil {
+		return storage.ManagedConfigDefaults{}, err
+	}
+	interval := settingInt(values["managed_config_interval_seconds"], 86400)
+	if interval < 60 {
+		interval = 86400
+	}
+	return storage.ManagedConfigDefaults{
+		Enabled:         settingBool(values["managed_config_enabled"]),
+		URLMode:         normalizeGlobalManagedURLMode(values["managed_config_url_mode"]),
+		CustomURL:       strings.TrimSpace(values["managed_config_custom_url"]),
+		IntervalSeconds: interval,
+		Strict:          settingBool(values["managed_config_strict"]),
+	}, nil
+}
+
+func (s *Service) UpdateManagedConfigDefaults(input ManagedConfigDefaultsInput) (storage.ManagedConfigDefaults, error) {
+	input.URLMode = normalizeGlobalManagedURLMode(input.URLMode)
+	if input.IntervalSeconds == 0 {
+		input.IntervalSeconds = 86400
+	}
+	if input.IntervalSeconds < 60 {
+		return storage.ManagedConfigDefaults{}, fmt.Errorf("managed config interval must be at least 60 seconds")
+	}
+	if input.URLMode == "custom" {
+		if err := validateHTTPURL(input.CustomURL, input.Enabled); err != nil {
+			return storage.ManagedConfigDefaults{}, err
+		}
+	}
+	if err := s.setSetting("managed_config_enabled", boolSetting(input.Enabled)); err != nil {
+		return storage.ManagedConfigDefaults{}, err
+	}
+	if err := s.setSetting("managed_config_url_mode", input.URLMode); err != nil {
+		return storage.ManagedConfigDefaults{}, err
+	}
+	if err := s.setSetting("managed_config_custom_url", strings.TrimSpace(input.CustomURL)); err != nil {
+		return storage.ManagedConfigDefaults{}, err
+	}
+	if err := s.setSetting("managed_config_interval_seconds", fmt.Sprintf("%d", input.IntervalSeconds)); err != nil {
+		return storage.ManagedConfigDefaults{}, err
+	}
+	if err := s.setSetting("managed_config_strict", boolSetting(input.Strict)); err != nil {
+		return storage.ManagedConfigDefaults{}, err
+	}
+	return s.ManagedConfigDefaults()
+}
+
 func validateTaskUpdate(input UpdateInput) error {
 	if input.CustomRulesText != nil {
 		if err := validateCustomRulesText(*input.CustomRulesText); err != nil {
@@ -320,6 +399,11 @@ func validateTaskUpdate(input UpdateInput) error {
 	}
 	if input.ManagedConfigIntervalSeconds != nil && *input.ManagedConfigIntervalSeconds < 60 {
 		return fmt.Errorf("managed config interval must be at least 60 seconds")
+	}
+	if input.ManagedConfigCustomURL != nil {
+		if err := validateHTTPURL(*input.ManagedConfigCustomURL, false); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -346,6 +430,21 @@ func containsSectionHeader(text, header string) bool {
 		}
 	}
 	return false
+}
+
+func validateHTTPURL(value string, required bool) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		if required {
+			return fmt.Errorf("managed config custom url is required")
+		}
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("managed config custom url must be an absolute http or https url")
+	}
+	return nil
 }
 
 func (s *Service) settings(keys ...string) (map[string]string, error) {
@@ -404,12 +503,39 @@ func normalizeRuleMergeMode(mode string) string {
 }
 
 func normalizeVLESSRelayMode(mode string) string {
+	return normalizeTriStateMode(mode)
+}
+
+func normalizeTriStateMode(mode string) string {
 	switch mode {
 	case "enabled", "disabled":
 		return mode
 	default:
 		return "global"
 	}
+}
+
+func normalizeTaskManagedURLMode(mode string) string {
+	switch mode {
+	case "task_subscription", "custom":
+		return mode
+	default:
+		return "global"
+	}
+}
+
+func normalizeGlobalManagedURLMode(mode string) string {
+	if mode == "custom" {
+		return mode
+	}
+	return "task_subscription"
+}
+
+func normalizeIntervalMode(mode string) string {
+	if mode == "custom" {
+		return mode
+	}
+	return "global"
 }
 
 func boolToInt(value bool) int {
@@ -421,6 +547,14 @@ func boolToInt(value bool) int {
 
 func settingBool(value string) bool {
 	return strings.EqualFold(strings.TrimSpace(value), "true")
+}
+
+func settingInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func boolSetting(value bool) string {
@@ -436,14 +570,16 @@ type taskScanner interface {
 
 func scanTask(row taskScanner) (storage.ConversionTask, error) {
 	var task storage.ConversionTask
-	var enabled, mergeDefaults, includeGlobalRules, managedEnabled, managedStrict int
+	var enabled, mergeDefaults, includeGlobalRules int
 	var lastSuccessAt, lastErrorAt sql.NullString
 	err := row.Scan(
 		&task.ID, &task.UserID, &task.Name, &task.InputType, &task.OutputType, &task.SourceURL,
 		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&lastSuccessAt, &lastErrorAt, &task.LastErrorMessage,
 		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.CustomGroupsText,
-		&task.VLESSRelayMode, &managedEnabled, &task.ManagedConfigIntervalSeconds, &managedStrict, &task.SubscriptionToken,
+		&task.VLESSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,
+		&task.ManagedConfigIntervalMode, &task.ManagedConfigIntervalSeconds, &task.ManagedConfigStrictMode,
+		&task.SubscriptionToken,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.ConversionTask{}, err
@@ -451,10 +587,13 @@ func scanTask(row taskScanner) (storage.ConversionTask, error) {
 	task.Enabled = enabled == 1
 	task.MergeDefaultPinnedNodes = mergeDefaults == 1
 	task.IncludeGlobalRules = includeGlobalRules == 1
-	task.ManagedConfigEnabled = managedEnabled == 1
-	task.ManagedConfigStrict = managedStrict == 1
 	task.RuleMergeMode = normalizeRuleMergeMode(task.RuleMergeMode)
 	task.VLESSRelayMode = normalizeVLESSRelayMode(task.VLESSRelayMode)
+	task.ManagedConfigMode = normalizeTriStateMode(task.ManagedConfigMode)
+	task.ManagedConfigURLMode = normalizeTaskManagedURLMode(task.ManagedConfigURLMode)
+	task.ManagedConfigCustomURL = strings.TrimSpace(task.ManagedConfigCustomURL)
+	task.ManagedConfigIntervalMode = normalizeIntervalMode(task.ManagedConfigIntervalMode)
+	task.ManagedConfigStrictMode = normalizeTriStateMode(task.ManagedConfigStrictMode)
 	if task.ManagedConfigIntervalSeconds == 0 {
 		task.ManagedConfigIntervalSeconds = 86400
 	}

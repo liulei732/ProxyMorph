@@ -31,9 +31,12 @@ type ConversionTask struct {
 	RuleMergeMode                string
 	CustomGroupsText             string
 	VLESSRelayMode               string
-	ManagedConfigEnabled         bool
+	ManagedConfigMode            string
+	ManagedConfigURLMode         string
+	ManagedConfigCustomURL       string
+	ManagedConfigIntervalMode    string
 	ManagedConfigIntervalSeconds int
-	ManagedConfigStrict          bool
+	ManagedConfigStrictMode      string
 	CreatedAt                    time.Time
 	UpdatedAt                    time.Time
 }
@@ -41,6 +44,14 @@ type ConversionTask struct {
 type GlobalRuleConfig struct {
 	CustomRulesText   string
 	VLESSRelayEnabled bool
+}
+
+type ManagedConfigDefaults struct {
+	Enabled         bool
+	URLMode         string
+	CustomURL       string
+	IntervalSeconds int
+	Strict          bool
 }
 
 type PinnedNode struct {

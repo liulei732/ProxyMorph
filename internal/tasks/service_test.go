@@ -164,17 +164,17 @@ func TestUpdateTaskChangesSurgeConfigFields(t *testing.T) {
 	}
 
 	includeGlobal := false
-	managedEnabled := true
-	managedStrict := true
 	next, err := service.Update(userID, task.ID, UpdateInput{
 		IncludeGlobalRules:           &includeGlobal,
 		CustomRulesText:              stringPtr("DOMAIN,task.example,DIRECT"),
 		RuleMergeMode:                stringPtr("upstream_first_dedupe"),
 		CustomGroupsText:             stringPtr("Manual = select, Proxy, DIRECT"),
 		VLESSRelayMode:               stringPtr("enabled"),
-		ManagedConfigEnabled:         &managedEnabled,
+		ManagedConfigMode:            stringPtr("enabled"),
+		ManagedConfigURLMode:         stringPtr("task_subscription"),
+		ManagedConfigIntervalMode:    stringPtr("custom"),
 		ManagedConfigIntervalSeconds: intPtr(7200),
-		ManagedConfigStrict:          &managedStrict,
+		ManagedConfigStrictMode:      stringPtr("enabled"),
 	})
 	if err != nil {
 		t.Fatalf("Update returned error: %v", err)
@@ -182,11 +182,50 @@ func TestUpdateTaskChangesSurgeConfigFields(t *testing.T) {
 	if next.IncludeGlobalRules || next.CustomRulesText != "DOMAIN,task.example,DIRECT" || next.RuleMergeMode != "upstream_first_dedupe" {
 		t.Fatalf("unexpected rule config: %#v", next)
 	}
-	if next.CustomGroupsText != "Manual = select, Proxy, DIRECT" || !next.ManagedConfigEnabled || next.ManagedConfigIntervalSeconds != 7200 || !next.ManagedConfigStrict {
+	if next.CustomGroupsText != "Manual = select, Proxy, DIRECT" || next.ManagedConfigMode != "enabled" || next.ManagedConfigURLMode != "task_subscription" {
+		t.Fatalf("unexpected group/managed config: %#v", next)
+	}
+	if next.ManagedConfigIntervalMode != "custom" || next.ManagedConfigIntervalSeconds != 7200 || next.ManagedConfigStrictMode != "enabled" {
 		t.Fatalf("unexpected group/managed config: %#v", next)
 	}
 	if next.VLESSRelayMode != "enabled" {
 		t.Fatalf("VLESSRelayMode = %q, want enabled", next.VLESSRelayMode)
+	}
+}
+
+func TestManagedConfigTaskFieldsDefaultAndUpdate(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+
+	task, err := service.Create(userID, CreateInput{Name: "Main", SourceURL: "https://example.com/a.yaml", RefreshIntervalSeconds: 3600})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if task.ManagedConfigMode != "global" || task.ManagedConfigURLMode != "global" || task.ManagedConfigIntervalMode != "global" || task.ManagedConfigStrictMode != "global" {
+		t.Fatalf("unexpected managed config defaults: %#v", task)
+	}
+
+	next, err := service.Update(userID, task.ID, UpdateInput{
+		ManagedConfigMode:            stringPtr("enabled"),
+		ManagedConfigURLMode:         stringPtr("custom"),
+		ManagedConfigCustomURL:       stringPtr("https://profiles.example.com/main.conf"),
+		ManagedConfigIntervalMode:    stringPtr("custom"),
+		ManagedConfigIntervalSeconds: intPtr(7200),
+		ManagedConfigStrictMode:      stringPtr("enabled"),
+	})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if next.ManagedConfigMode != "enabled" || next.ManagedConfigURLMode != "custom" || next.ManagedConfigCustomURL != "https://profiles.example.com/main.conf" {
+		t.Fatalf("unexpected managed URL config: %#v", next)
+	}
+	if next.ManagedConfigIntervalMode != "custom" || next.ManagedConfigIntervalSeconds != 7200 || next.ManagedConfigStrictMode != "enabled" {
+		t.Fatalf("unexpected managed interval/strict config: %#v", next)
 	}
 }
 
@@ -221,6 +260,37 @@ func TestGlobalRuleConfigRoundTrip(t *testing.T) {
 	}
 	if !enabled {
 		t.Fatal("VLESSRelayEnabled = false, want true")
+	}
+}
+
+func TestManagedConfigDefaultsRoundTrip(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service := NewService(db)
+
+	initial, err := service.ManagedConfigDefaults()
+	if err != nil {
+		t.Fatalf("ManagedConfigDefaults returned error: %v", err)
+	}
+	if initial.Enabled || initial.URLMode != "task_subscription" || initial.CustomURL != "" || initial.IntervalSeconds != 86400 || initial.Strict {
+		t.Fatalf("unexpected initial defaults: %#v", initial)
+	}
+
+	updated, err := service.UpdateManagedConfigDefaults(ManagedConfigDefaultsInput{
+		Enabled:         true,
+		URLMode:         "custom",
+		CustomURL:       "https://profiles.example.com/default.conf",
+		IntervalSeconds: 3600,
+		Strict:          true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateManagedConfigDefaults returned error: %v", err)
+	}
+	if !updated.Enabled || updated.URLMode != "custom" || updated.CustomURL != "https://profiles.example.com/default.conf" || updated.IntervalSeconds != 3600 || !updated.Strict {
+		t.Fatalf("unexpected updated defaults: %#v", updated)
 	}
 }
 

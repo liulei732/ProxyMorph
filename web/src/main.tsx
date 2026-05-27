@@ -23,17 +23,32 @@ type Task = {
   RuleMergeMode: RuleMergeMode;
   CustomGroupsText: string;
   VLESSRelayMode: VLESSRelayMode;
-  ManagedConfigEnabled: boolean;
+  ManagedConfigMode: TriStateMode;
+  ManagedConfigURLMode: ManagedURLMode;
+  ManagedConfigCustomURL: string;
+  ManagedConfigIntervalMode: ManagedIntervalMode;
   ManagedConfigIntervalSeconds: number;
-  ManagedConfigStrict: boolean;
+  ManagedConfigStrictMode: TriStateMode;
 };
 
 type RuleMergeMode = "custom_first" | "upstream_first" | "custom_first_dedupe" | "upstream_first_dedupe";
 type VLESSRelayMode = "global" | "enabled" | "disabled";
+type TriStateMode = "global" | "enabled" | "disabled";
+type ManagedURLMode = "global" | "task_subscription" | "custom";
+type GlobalManagedURLMode = "task_subscription" | "custom";
+type ManagedIntervalMode = "global" | "custom";
 
 type RuleConfig = {
   CustomRulesText: string;
   VLESSRelayEnabled: boolean;
+};
+
+type ManagedConfigDefaults = {
+  Enabled: boolean;
+  URLMode: GlobalManagedURLMode;
+  CustomURL: string;
+  IntervalSeconds: number;
+  Strict: boolean;
 };
 
 type PinnedNode = {
@@ -54,6 +69,7 @@ function App() {
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [nodes, setNodes] = React.useState<PinnedNode[]>([]);
   const [ruleConfig, setRuleConfig] = React.useState<RuleConfig>({ CustomRulesText: "", VLESSRelayEnabled: false });
+  const [managedConfigDefaults, setManagedConfigDefaults] = React.useState<ManagedConfigDefaults>(defaultManagedConfigDefaults);
   const [error, setError] = React.useState("");
   const [toast, setToast] = React.useState("");
   const [busyTaskID, setBusyTaskID] = React.useState<number | null>(null);
@@ -96,14 +112,16 @@ function App() {
   }
 
   async function refresh(showToast = false) {
-    const [nextTasks, nextNodes, nextRuleConfig] = await Promise.all([
+    const [nextTasks, nextNodes, nextRuleConfig, nextManagedConfigDefaults] = await Promise.all([
       api<Task[]>("/api/tasks").catch(() => []),
       api<PinnedNode[]>("/api/nodes").catch(() => []),
       api<RuleConfig>("/api/rule-config").catch(() => ({ CustomRulesText: "", VLESSRelayEnabled: false })),
+      api<ManagedConfigDefaults>("/api/managed-config-defaults").catch(() => defaultManagedConfigDefaults),
     ]);
     setTasks(nextTasks);
     setNodes(nextNodes);
     setRuleConfig(nextRuleConfig);
+    setManagedConfigDefaults(nextManagedConfigDefaults);
     if (showToast) notify(t.refreshed);
   }
 
@@ -178,6 +196,29 @@ function App() {
       notify(t.settings.ruleConfigSaved);
     } catch {
       notify(t.settings.ruleConfigSaveFailed);
+    }
+  }
+
+  async function updateManagedConfigDefaults(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const preset = String(form.get("interval_preset") || "86400");
+    const interval = preset === "custom" ? Number(form.get("interval_seconds") || 86400) : Number(preset);
+    try {
+      const next = await api<ManagedConfigDefaults>("/api/managed-config-defaults", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: form.get("enabled") === "on",
+          url_mode: String(form.get("url_mode") || "task_subscription"),
+          custom_url: String(form.get("custom_url") || ""),
+          interval_seconds: interval,
+          strict: form.get("strict") === "on",
+        }),
+      });
+      setManagedConfigDefaults(next);
+      notify(t.settings.managedConfigSaved);
+    } catch {
+      notify(t.settings.managedConfigSaveFailed);
     }
   }
 
@@ -294,7 +335,7 @@ function App() {
               <Metric icon={<Layers />} value={tasks.filter((task) => task.IncludeGlobalRules).length} label={t.metrics.globalRules} />
               <Metric icon={<AlertCircle />} value={errors.length} label={t.metrics.errors} />
             </div>
-            <TaskList tasks={tasks} t={t} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} />
+            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} />
           </section>
         )}
 
@@ -307,7 +348,7 @@ function App() {
               <button><Plus size={16} /> {t.forms.create}</button>
             </form>
             {error && <p className="error">{error}</p>}
-            <TaskList tasks={tasks} t={t} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} />
+            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} />
           </section>
         )}
 
@@ -328,6 +369,17 @@ function App() {
               <h3>{t.settings.globalRuleTitle}</h3>
               <label className="check-label"><input name="vless_relay_enabled" type="checkbox" defaultChecked={ruleConfig.VLESSRelayEnabled} /> {t.settings.vlessRelayToggle}</label>
               <label className="wide-field">{t.forms.customRules}<textarea name="custom_rules_text" rows={8} defaultValue={ruleConfig.CustomRulesText} placeholder={t.placeholders.customRules} /></label>
+              <button><Save size={15} /> {t.forms.save}</button>
+            </form>
+            <form className="panel settings-form managed-defaults-form" onSubmit={updateManagedConfigDefaults}>
+              <h3>{t.forms.managedConfigDefaults}</h3>
+              <label className="check-label"><input name="enabled" type="checkbox" defaultChecked={managedConfigDefaults.Enabled} /> {t.forms.enabled}</label>
+              <label>{t.forms.managedConfigURLMode}<select name="url_mode" defaultValue={managedConfigDefaults.URLMode}>{globalManagedURLModeOptions(t)}</select></label>
+              <label>{t.forms.managedConfigCustomURL}<input name="custom_url" defaultValue={managedConfigDefaults.CustomURL} placeholder="https://profiles.example.com/default.conf" /></label>
+              <label>{t.forms.managedConfigIntervalMode}<select name="interval_preset" defaultValue={intervalPresetValue(managedConfigDefaults.IntervalSeconds)}>{managedIntervalPresetOptions(t)}</select></label>
+              <label>{t.forms.managedConfigIntervalCustom}<input name="interval_seconds" type="number" min="60" defaultValue={managedConfigDefaults.IntervalSeconds || 86400} /></label>
+              <label className="check-label"><input name="strict" type="checkbox" defaultChecked={managedConfigDefaults.Strict} /> {t.forms.managedConfigStrictMode}</label>
+              <p className="wide-field muted">{t.settings.managedStrictHelp}</p>
               <button><Save size={15} /> {t.forms.save}</button>
             </form>
             <section className="panel settings-info">
@@ -354,9 +406,12 @@ type TaskUpdateInput = {
   rule_merge_mode?: RuleMergeMode;
   custom_groups_text?: string;
   vless_relay_mode?: VLESSRelayMode;
-  managed_config_enabled?: boolean;
+  managed_config_mode?: TriStateMode;
+  managed_config_url_mode?: ManagedURLMode;
+  managed_config_custom_url?: string;
+  managed_config_interval_mode?: ManagedIntervalMode;
   managed_config_interval_seconds?: number;
-  managed_config_strict?: boolean;
+  managed_config_strict_mode?: TriStateMode;
 };
 
 function LanguageSwitch({ language, onChange }: { language: Language; onChange: (language: Language) => void }) {
@@ -384,6 +439,7 @@ function Metric({ icon, value, label }: { icon: React.ReactNode; value: number; 
 function TaskList({
   tasks,
   t,
+  managedConfigDefaults,
   busyTaskID,
   onCopy,
   onUpdate,
@@ -393,6 +449,7 @@ function TaskList({
 }: {
   tasks: Task[];
   t: typeof translations[Language];
+  managedConfigDefaults: ManagedConfigDefaults;
   busyTaskID: number | null;
   onCopy: (message: string) => void;
   onUpdate: (id: number, input: TaskUpdateInput) => Promise<void>;
@@ -405,7 +462,7 @@ function TaskList({
       <h3>{t.taskList.title}</h3>
       <div className="list">
         {tasks.length ? tasks.map((task) => (
-          <TaskRow key={task.ID} task={task} t={t} busy={busyTaskID === task.ID} onCopy={onCopy} onUpdate={onUpdate} onDelete={onDelete} onGenerate={onGenerate} onPreview={onPreview} />
+          <TaskRow key={task.ID} task={task} t={t} managedConfigDefaults={managedConfigDefaults} busy={busyTaskID === task.ID} onCopy={onCopy} onUpdate={onUpdate} onDelete={onDelete} onGenerate={onGenerate} onPreview={onPreview} />
         )) : <p className="muted">{t.taskList.empty}</p>}
       </div>
     </section>
@@ -415,6 +472,7 @@ function TaskList({
 function TaskRow({
   task,
   t,
+  managedConfigDefaults,
   busy,
   onCopy,
   onUpdate,
@@ -424,6 +482,7 @@ function TaskRow({
 }: {
   task: Task;
   t: typeof translations[Language];
+  managedConfigDefaults: ManagedConfigDefaults;
   busy: boolean;
   onCopy: (message: string) => void;
   onUpdate: (id: number, input: TaskUpdateInput) => Promise<void>;
@@ -453,9 +512,12 @@ function TaskRow({
       rule_merge_mode: String(form.get("rule_merge_mode") || "custom_first") as RuleMergeMode,
       custom_groups_text: String(form.get("custom_groups_text") || ""),
       vless_relay_mode: String(form.get("vless_relay_mode") || "global") as VLESSRelayMode,
-      managed_config_enabled: form.get("managed_config_enabled") === "on",
+      managed_config_mode: String(form.get("managed_config_mode") || "global") as TriStateMode,
+      managed_config_url_mode: String(form.get("managed_config_url_mode") || "global") as ManagedURLMode,
+      managed_config_custom_url: String(form.get("managed_config_custom_url") || ""),
+      managed_config_interval_mode: String(form.get("managed_config_interval_mode") || "global") as ManagedIntervalMode,
       managed_config_interval_seconds: Number(form.get("managed_config_interval_seconds") || 86400),
-      managed_config_strict: form.get("managed_config_strict") === "on",
+      managed_config_strict_mode: String(form.get("managed_config_strict_mode") || "global") as TriStateMode,
     });
     setEditing(false);
   }
@@ -489,9 +551,13 @@ function TaskRow({
           <label className="check-label"><input name="include_global_rules" type="checkbox" defaultChecked={task.IncludeGlobalRules} /> {t.forms.includeGlobalRules}</label>
           <label>{t.forms.ruleMergeMode}<select name="rule_merge_mode" defaultValue={task.RuleMergeMode}>{ruleMergeOptions(t)}</select></label>
           <label>{t.forms.vlessRelayMode}<select name="vless_relay_mode" defaultValue={task.VLESSRelayMode || "global"}>{vlessRelayModeOptions(t)}</select></label>
-          <label className="check-label"><input name="managed_config_enabled" type="checkbox" defaultChecked={task.ManagedConfigEnabled} /> {t.forms.managedConfig}</label>
-          <label>{t.forms.managedInterval}<input name="managed_config_interval_seconds" type="number" min="60" defaultValue={task.ManagedConfigIntervalSeconds || 86400} /></label>
-          <label className="check-label"><input name="managed_config_strict" type="checkbox" defaultChecked={task.ManagedConfigStrict} /> {t.forms.managedStrict}</label>
+          <label>{t.forms.managedConfigMode}<select name="managed_config_mode" defaultValue={task.ManagedConfigMode || "global"}>{triStateOptions(t.managedConfigModes)}</select></label>
+          <label>{t.forms.managedConfigURLMode}<select name="managed_config_url_mode" defaultValue={task.ManagedConfigURLMode || "global"}>{managedURLModeOptions(t)}</select></label>
+          <label>{t.forms.managedConfigCustomURL}<input name="managed_config_custom_url" defaultValue={task.ManagedConfigCustomURL} placeholder="https://profiles.example.com/main.conf" /></label>
+          <label>{t.forms.managedConfigIntervalMode}<select name="managed_config_interval_mode" defaultValue={task.ManagedConfigIntervalMode || "global"}>{managedIntervalModeOptions(t)}</select></label>
+          <label>{t.forms.managedConfigIntervalCustom}<input name="managed_config_interval_seconds" type="number" min="60" defaultValue={task.ManagedConfigIntervalSeconds || 86400} /></label>
+          <label>{t.forms.managedConfigStrictMode}<select name="managed_config_strict_mode" defaultValue={task.ManagedConfigStrictMode || "global"}>{triStateOptions(t.managedConfigStrictModes)}</select></label>
+          <label className="wide-field">{t.forms.managedConfigPreview}<pre className="inline-preview">{managedHeaderPreview(task, managedConfigDefaults)}</pre></label>
           <label className="wide-field">{t.forms.customRules}<textarea name="custom_rules_text" rows={5} defaultValue={task.CustomRulesText} placeholder={t.placeholders.customRules} /></label>
           <label className="wide-field">{t.forms.customGroups}<textarea name="custom_groups_text" rows={4} defaultValue={task.CustomGroupsText} placeholder={t.placeholders.customGroups} /></label>
           <button disabled={busy}><Save size={15} /> {busy ? t.saving : t.forms.save}</button>
@@ -508,10 +574,55 @@ function ruleMergeOptions(t: typeof translations[Language]) {
   ));
 }
 
+function triStateOptions(labels: Record<TriStateMode, string>) {
+  return (["global", "enabled", "disabled"] as TriStateMode[]).map((mode) => (
+    <option key={mode} value={mode}>{labels[mode]}</option>
+  ));
+}
+
 function vlessRelayModeOptions(t: typeof translations[Language]) {
   return (["global", "enabled", "disabled"] as VLESSRelayMode[]).map((mode) => (
     <option key={mode} value={mode}>{t.vlessRelayModes[mode]}</option>
   ));
+}
+
+function managedURLModeOptions(t: typeof translations[Language]) {
+  return (["global", "task_subscription", "custom"] as ManagedURLMode[]).map((mode) => (
+    <option key={mode} value={mode}>{t.managedConfigURLModes[mode]}</option>
+  ));
+}
+
+function globalManagedURLModeOptions(t: typeof translations[Language]) {
+  return (["task_subscription", "custom"] as GlobalManagedURLMode[]).map((mode) => (
+    <option key={mode} value={mode}>{t.globalManagedConfigURLModes[mode]}</option>
+  ));
+}
+
+function managedIntervalModeOptions(t: typeof translations[Language]) {
+  return (["global", "custom"] as ManagedIntervalMode[]).map((mode) => (
+    <option key={mode} value={mode}>{t.managedConfigIntervalModes[mode]}</option>
+  ));
+}
+
+function managedIntervalPresetOptions(t: typeof translations[Language]) {
+  return (["3600", "21600", "43200", "86400", "custom"] as const).map((value) => (
+    <option key={value} value={value}>{t.managedConfigIntervals[value]}</option>
+  ));
+}
+
+function intervalPresetValue(value: number) {
+  return [3600, 21600, 43200, 86400].includes(value) ? String(value) : "custom";
+}
+
+function managedHeaderPreview(task: Task, defaults: ManagedConfigDefaults) {
+  const mode = task.ManagedConfigMode || "global";
+  const enabled = mode === "enabled" || (mode === "global" && defaults.Enabled);
+  if (!enabled) return "MANAGED-CONFIG disabled";
+  const urlMode = task.ManagedConfigURLMode === "global" ? defaults.URLMode : task.ManagedConfigURLMode;
+  const url = urlMode === "custom" ? (task.ManagedConfigCustomURL || defaults.CustomURL || "<custom-url>") : absoluteSubscriptionURL(task.SubscriptionURL);
+  const interval = task.ManagedConfigIntervalMode === "custom" ? task.ManagedConfigIntervalSeconds : defaults.IntervalSeconds;
+  const strict = task.ManagedConfigStrictMode === "enabled" || (task.ManagedConfigStrictMode === "global" && defaults.Strict);
+  return `#!MANAGED-CONFIG ${url} interval=${interval || 86400} strict=${strict}`;
 }
 
 function taskStatus(task: Task, busy: boolean, t: typeof translations[Language]) {
@@ -555,5 +666,13 @@ function absoluteSubscriptionURL(url: string) {
   }
   return `${location.origin}${url.startsWith("/") ? "" : "/"}${url}`;
 }
+
+const defaultManagedConfigDefaults: ManagedConfigDefaults = {
+  Enabled: false,
+  URLMode: "task_subscription",
+  CustomURL: "",
+  IntervalSeconds: 86400,
+  Strict: false,
+};
 
 createRoot(document.getElementById("root")!).render(<App />);

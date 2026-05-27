@@ -195,13 +195,14 @@ func (s *Service) GenerateByTokenWithRelayHost(token, relayHost string) (string,
 
 func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 	var task storage.ConversionTask
-	var enabled, mergeDefaults, includeGlobalRules, managedEnabled, managedStrict int
+	var enabled, mergeDefaults, includeGlobalRules int
 	err := s.db.SQL().QueryRow(`
 		SELECT id, user_id, name, input_type, output_type, source_url, enabled,
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
-			vless_relay_mode, managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
+			vless_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
+			managed_config_interval_mode, managed_config_interval_seconds, managed_config_strict_mode,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
 		WHERE id = ?`, taskID).Scan(
@@ -209,17 +210,22 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&task.LastErrorMessage,
 		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.CustomGroupsText,
-		&task.VLESSRelayMode, &managedEnabled, &task.ManagedConfigIntervalSeconds, &managedStrict, &task.SubscriptionToken,
+		&task.VLESSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,
+		&task.ManagedConfigIntervalMode, &task.ManagedConfigIntervalSeconds, &task.ManagedConfigStrictMode,
+		&task.SubscriptionToken,
 	)
 	task.Enabled = enabled == 1
 	task.MergeDefaultPinnedNodes = mergeDefaults == 1
 	task.IncludeGlobalRules = includeGlobalRules == 1
-	task.ManagedConfigEnabled = managedEnabled == 1
-	task.ManagedConfigStrict = managedStrict == 1
 	if task.RuleMergeMode == "" {
 		task.RuleMergeMode = "custom_first"
 	}
 	task.VLESSRelayMode = normalizeVLESSRelayMode(task.VLESSRelayMode)
+	task.ManagedConfigMode = normalizeTriStateMode(task.ManagedConfigMode)
+	task.ManagedConfigURLMode = normalizeTaskManagedURLMode(task.ManagedConfigURLMode)
+	task.ManagedConfigCustomURL = strings.TrimSpace(task.ManagedConfigCustomURL)
+	task.ManagedConfigIntervalMode = normalizeIntervalMode(task.ManagedConfigIntervalMode)
+	task.ManagedConfigStrictMode = normalizeTriStateMode(task.ManagedConfigStrictMode)
 	if task.ManagedConfigIntervalSeconds == 0 {
 		task.ManagedConfigIntervalSeconds = 86400
 	}
@@ -227,12 +233,32 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 }
 
 func normalizeVLESSRelayMode(mode string) string {
+	return normalizeTriStateMode(mode)
+}
+
+func normalizeTriStateMode(mode string) string {
 	switch mode {
 	case "enabled", "disabled":
 		return mode
 	default:
 		return "global"
 	}
+}
+
+func normalizeTaskManagedURLMode(mode string) string {
+	switch mode {
+	case "task_subscription", "custom":
+		return mode
+	default:
+		return "global"
+	}
+}
+
+func normalizeIntervalMode(mode string) string {
+	if mode == "custom" {
+		return mode
+	}
+	return "global"
 }
 
 func (s *Service) surgeConfig(task storage.ConversionTask, relayHost string) (convert.SurgeConfig, error) {
@@ -251,20 +277,80 @@ func (s *Service) surgeConfig(task storage.ConversionTask, relayHost string) (co
 		CustomGroups:  textLines(task.CustomGroupsText),
 		RuleMergeMode: task.RuleMergeMode,
 	}
-	if task.ManagedConfigEnabled {
-		cfg.ManagedConfigHeader = managedConfigHeader(task, relayHost)
+	managed, err := s.effectiveManagedConfig(task, relayHost)
+	if err != nil {
+		return convert.SurgeConfig{}, err
+	}
+	if managed.Enabled {
+		cfg.ManagedConfigHeader = managedConfigHeader(managed)
 	}
 	return cfg, nil
 }
 
-func managedConfigHeader(task storage.ConversionTask, relayHost string) string {
-	if task.ManagedConfigIntervalSeconds == 0 {
-		task.ManagedConfigIntervalSeconds = 86400
+type effectiveManagedConfig struct {
+	Enabled         bool
+	URL             string
+	IntervalSeconds int
+	Strict          bool
+}
+
+func (s *Service) effectiveManagedConfig(task storage.ConversionTask, relayHost string) (effectiveManagedConfig, error) {
+	defaults, err := s.tasks.ManagedConfigDefaults()
+	if err != nil {
+		return effectiveManagedConfig{}, err
 	}
+	enabled := defaults.Enabled
+	switch normalizeTriStateMode(task.ManagedConfigMode) {
+	case "enabled":
+		enabled = true
+	case "disabled":
+		enabled = false
+	}
+	if !enabled {
+		return effectiveManagedConfig{Enabled: false}, nil
+	}
+
+	urlMode := task.ManagedConfigURLMode
+	if urlMode == "" || urlMode == "global" {
+		urlMode = defaults.URLMode
+	}
+	managedURL := taskSubscriptionURL(task, relayHost)
+	if urlMode == "custom" {
+		managedURL = strings.TrimSpace(defaults.CustomURL)
+		if strings.TrimSpace(task.ManagedConfigCustomURL) != "" && task.ManagedConfigURLMode == "custom" {
+			managedURL = strings.TrimSpace(task.ManagedConfigCustomURL)
+		}
+	}
+	if managedURL == "" {
+		return effectiveManagedConfig{}, fmt.Errorf("managed config url is required")
+	}
+
+	interval := defaults.IntervalSeconds
+	if interval == 0 {
+		interval = 86400
+	}
+	if task.ManagedConfigIntervalMode == "custom" {
+		interval = task.ManagedConfigIntervalSeconds
+	}
+	if interval < 60 {
+		return effectiveManagedConfig{}, fmt.Errorf("managed config interval must be at least 60 seconds")
+	}
+
+	strict := defaults.Strict
+	switch normalizeTriStateMode(task.ManagedConfigStrictMode) {
+	case "enabled":
+		strict = true
+	case "disabled":
+		strict = false
+	}
+	return effectiveManagedConfig{Enabled: true, URL: managedURL, IntervalSeconds: interval, Strict: strict}, nil
+}
+
+func managedConfigHeader(config effectiveManagedConfig) string {
 	return fmt.Sprintf("#!MANAGED-CONFIG %s interval=%d strict=%t",
-		taskSubscriptionURL(task, relayHost),
-		task.ManagedConfigIntervalSeconds,
-		task.ManagedConfigStrict,
+		config.URL,
+		config.IntervalSeconds,
+		config.Strict,
 	)
 }
 

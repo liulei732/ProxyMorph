@@ -33,9 +33,12 @@ func (db *DB) Migrate(ctx context.Context) error {
 			rule_merge_mode TEXT NOT NULL DEFAULT 'custom_first',
 			custom_groups_text TEXT NOT NULL DEFAULT '',
 			vless_relay_mode TEXT NOT NULL DEFAULT 'global',
-			managed_config_enabled INTEGER NOT NULL DEFAULT 0,
+			managed_config_mode TEXT NOT NULL DEFAULT 'global',
+			managed_config_url_mode TEXT NOT NULL DEFAULT 'global',
+			managed_config_custom_url TEXT NOT NULL DEFAULT '',
+			managed_config_interval_mode TEXT NOT NULL DEFAULT 'global',
 			managed_config_interval_seconds INTEGER NOT NULL DEFAULT 86400,
-			managed_config_strict INTEGER NOT NULL DEFAULT 0,
+			managed_config_strict_mode TEXT NOT NULL DEFAULT 'global',
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -96,8 +99,13 @@ func (db *DB) Migrate(ctx context.Context) error {
 		`ALTER TABLE conversion_tasks ADD COLUMN custom_groups_text TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE conversion_tasks ADD COLUMN vless_relay_mode TEXT NOT NULL DEFAULT 'global'`,
 		`ALTER TABLE conversion_tasks ADD COLUMN managed_config_enabled INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE conversion_tasks ADD COLUMN managed_config_mode TEXT NOT NULL DEFAULT 'global'`,
+		`ALTER TABLE conversion_tasks ADD COLUMN managed_config_url_mode TEXT NOT NULL DEFAULT 'global'`,
+		`ALTER TABLE conversion_tasks ADD COLUMN managed_config_custom_url TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE conversion_tasks ADD COLUMN managed_config_interval_mode TEXT NOT NULL DEFAULT 'global'`,
 		`ALTER TABLE conversion_tasks ADD COLUMN managed_config_interval_seconds INTEGER NOT NULL DEFAULT 86400`,
 		`ALTER TABLE conversion_tasks ADD COLUMN managed_config_strict INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE conversion_tasks ADD COLUMN managed_config_strict_mode TEXT NOT NULL DEFAULT 'global'`,
 	} {
 		if _, err := db.sql.ExecContext(ctx, stmt); err != nil && !isDuplicateColumnError(err) {
 			return err

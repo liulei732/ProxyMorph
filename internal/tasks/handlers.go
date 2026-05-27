@@ -54,6 +54,32 @@ func (h Handler) RuleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h Handler) ManagedConfigDefaults(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		config, err := h.Service.ManagedConfigDefaults()
+		if err != nil {
+			httpapi.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		httpapi.JSON(w, http.StatusOK, config)
+	case http.MethodPut:
+		var input ManagedConfigDefaultsInput
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		config, err := h.Service.UpdateManagedConfigDefaults(input)
+		if err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		httpapi.JSON(w, http.StatusOK, config)
+	default:
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 func (h Handler) Create(w http.ResponseWriter, r *http.Request) {
 	userID := httpapi.UserID(r.Context())
 	var input CreateInput

@@ -389,9 +389,11 @@ func TestGenerateAppliesTaskAndGlobalRuleConfig(t *testing.T) {
 			custom_rules_text = 'DOMAIN,task.example,DIRECT',
 			rule_merge_mode = 'custom_first_dedupe',
 			custom_groups_text = 'Manual = select, Proxy, DIRECT',
-			managed_config_enabled = 1,
+			managed_config_mode = 'enabled',
+			managed_config_url_mode = 'task_subscription',
+			managed_config_interval_mode = 'custom',
 			managed_config_interval_seconds = 7200,
-			managed_config_strict = 1
+			managed_config_strict_mode = 'enabled'
 		WHERE id = 1`)
 	if err != nil {
 		t.Fatal(err)
@@ -428,6 +430,80 @@ func TestGenerateAppliesTaskAndGlobalRuleConfig(t *testing.T) {
 	)
 }
 
+func TestManagedConfigTaskFollowsEnabledGlobalCustomURL(t *testing.T) {
+	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\n"
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/clash.yaml")
+	_, err = db.SQL().Exec(`
+		INSERT INTO app_settings (key, value) VALUES
+			('managed_config_enabled', 'true'),
+			('managed_config_url_mode', 'custom'),
+			('managed_config_custom_url', 'https://profiles.example.com/default.conf'),
+			('managed_config_interval_seconds', '3600'),
+			('managed_config_strict', 'false')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	output, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	want := "#!MANAGED-CONFIG https://profiles.example.com/default.conf interval=3600 strict=false"
+	if firstLine(output) != want {
+		t.Fatalf("first line = %q, want %q", firstLine(output), want)
+	}
+}
+
+func TestManagedConfigTaskDisabledOverridesEnabledGlobal(t *testing.T) {
+	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\n"
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/clash.yaml")
+	_, err = db.SQL().Exec(`UPDATE conversion_tasks SET managed_config_mode = 'disabled' WHERE id = 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.SQL().Exec(`
+		INSERT INTO app_settings (key, value) VALUES
+			('managed_config_enabled', 'true'),
+			('managed_config_interval_seconds', '3600')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	output, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if strings.HasPrefix(output, "#!MANAGED-CONFIG") {
+		t.Fatalf("output should not include managed header:\n%s", output)
+	}
+}
+
 func TestGenerateCanExcludeGlobalRuleConfig(t *testing.T) {
 	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\nrules:\n  - DOMAIN,upstream.example,Proxy\n"
 
@@ -461,6 +537,14 @@ func TestGenerateCanExcludeGlobalRuleConfig(t *testing.T) {
 	if strings.Contains(output, "global.example") {
 		t.Fatalf("global rule should be excluded:\n%s", output)
 	}
+}
+
+func firstLine(text string) string {
+	idx := strings.IndexByte(text, '\n')
+	if idx == -1 {
+		return text
+	}
+	return text[:idx]
 }
 
 func assertSubscriptionOrder(t *testing.T, text string, values ...string) {

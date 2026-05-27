@@ -30,7 +30,7 @@
 - Modify: `internal/tasks/service.go`
 - Test: `internal/tasks/service_test.go`
 
-- [ ] **Step 1: Write failing task default and update tests**
+- [x] **Step 1: Write failing task default and update tests**
 
 Add this test to `internal/tasks/service_test.go`:
 
@@ -80,7 +80,7 @@ env GOCACHE=/Users/liulei/Codes/ProxyMorph/.cache/go-build GOMODCACHE=/Users/liu
 
 Expected: fail because the new fields and update inputs do not exist yet.
 
-- [ ] **Step 2: Replace storage model fields**
+- [x] **Step 2: Replace storage model fields**
 
 In `internal/storage/models.go`, replace:
 
@@ -113,7 +113,7 @@ type ManagedConfigDefaults struct {
 }
 ```
 
-- [ ] **Step 3: Update database schema**
+- [x] **Step 3: Update database schema**
 
 In `internal/storage/migrate.go`, replace the managed config columns in the `CREATE TABLE IF NOT EXISTS conversion_tasks` statement:
 
@@ -146,7 +146,7 @@ In the migration `ALTER TABLE` list, add:
 
 Keep the existing `managed_config_interval_seconds` migration so existing databases still get the interval column.
 
-- [ ] **Step 4: Update task service inputs and scan paths**
+- [x] **Step 4: Update task service inputs and scan paths**
 
 In `internal/tasks/service.go`, replace the old update input fields:
 
@@ -210,7 +210,7 @@ func normalizeIntervalMode(mode string) string {
 }
 ```
 
-- [ ] **Step 5: Validate task managed config fields**
+- [x] **Step 5: Validate task managed config fields**
 
 Extend `validateTaskUpdate`:
 
@@ -246,7 +246,7 @@ func validateHTTPURL(value string, required bool) error {
 
 Add `net/url` if it is not already imported.
 
-- [ ] **Step 6: Run task tests**
+- [x] **Step 6: Run task tests**
 
 Run:
 
@@ -265,7 +265,7 @@ Expected: pass.
 - Test: `internal/tasks/service_test.go`
 - Test: `internal/app/app_test.go`
 
-- [ ] **Step 1: Write failing service round-trip test**
+- [x] **Step 1: Write failing service round-trip test**
 
 Add this test to `internal/tasks/service_test.go`:
 
@@ -310,7 +310,7 @@ env GOCACHE=/Users/liulei/Codes/ProxyMorph/.cache/go-build GOMODCACHE=/Users/liu
 
 Expected: fail because the default service methods do not exist.
 
-- [ ] **Step 2: Implement defaults service methods**
+- [x] **Step 2: Implement defaults service methods**
 
 In `internal/tasks/service.go`, add:
 
@@ -399,7 +399,7 @@ func settingInt(value string, fallback int) int {
 }
 ```
 
-- [ ] **Step 3: Write failing API round-trip test**
+- [x] **Step 3: Write failing API round-trip test**
 
 Add this test to `internal/app/app_test.go`:
 
@@ -460,7 +460,7 @@ env GOCACHE=/Users/liulei/Codes/ProxyMorph/.cache/go-build GOMODCACHE=/Users/liu
 
 Expected: fail because the route does not exist.
 
-- [ ] **Step 4: Add handler and route**
+- [x] **Step 4: Add handler and route**
 
 In `internal/tasks/handlers.go`, add:
 
@@ -498,7 +498,7 @@ In `internal/app/routes.go`, add:
 a.mux.Handle("/api/managed-config-defaults", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(taskHandler.ManagedConfigDefaults)))
 ```
 
-- [ ] **Step 5: Run API tests**
+- [x] **Step 5: Run API tests**
 
 Run:
 
@@ -514,7 +514,7 @@ Expected: pass.
 - Modify: `internal/subscription/service.go`
 - Test: `internal/subscription/service_test.go`
 
-- [ ] **Step 1: Write failing subscription tests**
+- [x] **Step 1: Write failing subscription tests**
 
 Add tests to `internal/subscription/service_test.go` that create a task with mixed global and task managed config modes, then assert the first output line.
 
@@ -576,7 +576,7 @@ env GOCACHE=/Users/liulei/Codes/ProxyMorph/.cache/go-build GOMODCACHE=/Users/liu
 
 Expected: fail until subscription resolution is implemented.
 
-- [ ] **Step 2: Implement effective config resolver**
+- [x] **Step 2: Implement effective config resolver**
 
 In `internal/subscription/service.go`, add:
 
@@ -647,7 +647,7 @@ func (s *Service) effectiveManagedConfig(task storage.ConversionTask, relayHost 
 
 Use a generic tri-state normalizer instead of `normalizeVLESSRelayMode` if Task 1 introduced one in a shared file or duplicated it locally.
 
-- [ ] **Step 3: Replace old header generation**
+- [x] **Step 3: Replace old header generation**
 
 In `surgeConfig`, replace:
 
@@ -681,7 +681,7 @@ func managedConfigHeader(config effectiveManagedConfig) string {
 }
 ```
 
-- [ ] **Step 4: Run subscription tests**
+- [x] **Step 4: Run subscription tests**
 
 Run:
 
@@ -699,7 +699,7 @@ Expected: pass.
 - Modify: `web/src/i18n.test.ts`
 - Update generated assets under `internal/web/dist/`
 
-- [ ] **Step 1: Extend i18n tests**
+- [x] **Step 1: Extend i18n tests**
 
 In `web/src/i18n.test.ts`, add:
 
@@ -719,7 +719,7 @@ node --experimental-strip-types --test web/src/i18n.test.ts
 
 Expected: fail because the labels do not exist.
 
-- [ ] **Step 2: Add i18n labels**
+- [x] **Step 2: Add i18n labels**
 
 In `web/src/i18n.ts`, add form labels:
 
@@ -780,7 +780,7 @@ managedConfigIntervals: {
 
 Add matching English option groups.
 
-- [ ] **Step 3: Extend frontend data types and refresh**
+- [x] **Step 3: Extend frontend data types and refresh**
 
 In `web/src/main.tsx`, add types:
 
@@ -838,7 +838,7 @@ api<ManagedConfigDefaults>("/api/managed-config-defaults").catch(() => ({
 })),
 ```
 
-- [ ] **Step 4: Add global defaults form**
+- [x] **Step 4: Add global defaults form**
 
 In the Settings tab, add a new `panel settings-form` for global MANAGED-CONFIG defaults:
 
@@ -883,7 +883,7 @@ async function updateManagedConfigDefaults(event: React.FormEvent<HTMLFormElemen
 }
 ```
 
-- [ ] **Step 5: Add task edit controls and preview**
+- [x] **Step 5: Add task edit controls and preview**
 
 In the task edit form, replace old managed checkbox/interval/strict inputs with:
 
@@ -910,7 +910,7 @@ managed_config_strict_mode: String(form.get("managed_config_strict_mode") || "gl
 
 Pass `managedConfigDefaults` into `TaskList` and `TaskRow`.
 
-- [ ] **Step 6: Implement frontend preview helpers**
+- [x] **Step 6: Implement frontend preview helpers**
 
 Add helpers in `web/src/main.tsx`:
 
@@ -928,7 +928,7 @@ function managedHeaderPreview(task: Task, defaults: ManagedConfigDefaults) {
 
 Add option helper functions using the i18n option maps.
 
-- [ ] **Step 7: Build frontend and copy assets**
+- [x] **Step 7: Build frontend and copy assets**
 
 Run:
 
@@ -952,7 +952,7 @@ Expected: frontend tests and build pass.
 **Files:**
 - All changed files.
 
-- [ ] **Step 1: Format Go files**
+- [x] **Step 1: Format Go files**
 
 Run:
 
@@ -960,7 +960,7 @@ Run:
 /opt/homebrew/bin/gofmt -w internal/storage/migrate.go internal/storage/models.go internal/tasks/service.go internal/tasks/handlers.go internal/app/routes.go internal/app/app_test.go internal/tasks/service_test.go internal/subscription/service.go internal/subscription/service_test.go
 ```
 
-- [ ] **Step 2: Run full test suite**
+- [x] **Step 2: Run full test suite**
 
 Run:
 
@@ -971,7 +971,7 @@ env GOCACHE=/Users/liulei/Codes/ProxyMorph/.cache/go-build GOMODCACHE=/Users/liu
 
 Expected: all tests pass.
 
-- [ ] **Step 3: Build Docker image**
+- [x] **Step 3: Build Docker image**
 
 Run:
 
@@ -981,7 +981,7 @@ Run:
 
 Expected: image builds successfully and includes `sing-box` from the Dockerfile.
 
-- [ ] **Step 4: Inspect diff**
+- [x] **Step 4: Inspect diff**
 
 Run:
 
@@ -993,7 +993,7 @@ git diff --check
 
 Expected: only implementation files and refreshed frontend assets are changed; `.DS_Store` remains untracked and must not be staged.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 Run:
 
