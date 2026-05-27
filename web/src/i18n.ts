@@ -111,6 +111,7 @@ export const translations = {
       loadFailed: "加载预览失败。",
     },
     settings: {
+      runtimeInfo: "运行信息",
       cachePolicy: "缓存策略",
       cachePolicyValue: "按需刷新，失败时使用上次成功结果",
       vlessHelper: "VLESS 辅助",
@@ -225,6 +226,7 @@ export const translations = {
       loadFailed: "Load preview failed.",
     },
     settings: {
+      runtimeInfo: "Runtime Info",
       cachePolicy: "Cache Policy",
       cachePolicyValue: "Refresh on request with last-good fallback",
       vlessHelper: "VLESS Helper",

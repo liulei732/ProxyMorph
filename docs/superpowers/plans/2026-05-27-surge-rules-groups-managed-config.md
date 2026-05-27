@@ -82,6 +82,7 @@
 - [x] Add Settings panel controls for global rules.
 - [x] Add per-task advanced config controls: include global rules, merge mode, custom rules, custom groups, MANAGED-CONFIG interval/strict.
 - [x] Add save toasts and error toasts for global and task config.
+- [x] Render non-editable settings information as read-only text rows instead of disabled-looking inputs.
 - [x] Build frontend and copy `web/dist` to `internal/web/dist`.
 - [x] Run `node --experimental-strip-types --test web/src/i18n.test.ts` and `npm run build`.
 

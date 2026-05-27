@@ -325,7 +325,13 @@ function App() {
               <label className="wide-field">{t.forms.customRules}<textarea name="custom_rules_text" rows={8} defaultValue={ruleConfig.CustomRulesText} placeholder={t.placeholders.customRules} /></label>
               <button><Save size={15} /> {t.forms.save}</button>
             </form>
-            <section className="panel grid-form"><label>{t.settings.cachePolicy}<input readOnly value={t.settings.cachePolicyValue} /></label><label>{t.settings.vlessHelper}<input readOnly value={t.settings.vlessHelperValue} /></label></section>
+            <section className="panel settings-info">
+              <h3>{t.settings.runtimeInfo}</h3>
+              <div className="info-list">
+                <div className="info-row"><strong>{t.settings.cachePolicy}</strong><span>{t.settings.cachePolicyValue}</span></div>
+                <div className="info-row"><strong>{t.settings.vlessHelper}</strong><span>{t.settings.vlessHelperValue}</span></div>
+              </div>
+            </section>
           </section>
         )}
       </section>
