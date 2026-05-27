@@ -80,12 +80,24 @@ The MANAGED-CONFIG header must be the first line of the generated file.
 
 ProxyMorph stores a global `vless_relay_enabled` setting in `app_settings`.
 
+Each task stores `vless_relay_mode` with one of these values:
+
+- `global`: follow the global `vless_relay_enabled` database setting.
+- `enabled`: enable VLESS relay conversion for this task.
+- `disabled`: disable VLESS relay conversion for this task.
+
 VLESS relay conversion only runs when both conditions are true:
 
 - The deployment environment enables and configures VLESS relay support.
-- The database setting `vless_relay_enabled` is `true`.
+- The task effective mode enables relay conversion.
 
-When the setting is false, VLESS nodes are treated as unsupported and are ignored during Surge 6 rendering. If a subscription only contains VLESS nodes and the helper is disabled, generation fails with the existing "no Surge 6 compatible proxy nodes" error.
+Task effective mode is resolved as:
+
+- `enabled`: relay conversion is on for that task.
+- `disabled`: relay conversion is off for that task.
+- `global`: relay conversion follows `app_settings.vless_relay_enabled`.
+
+When the effective mode is disabled, VLESS nodes are treated as unsupported and are ignored during Surge 6 rendering. If a subscription only contains VLESS nodes and the helper is disabled, generation fails with the existing "no Surge 6 compatible proxy nodes" error.
 
 ## Rendering Order
 
@@ -117,6 +129,7 @@ Frontend should add a configuration surface for:
 - Global rules.
 - Per-task rule configuration.
 - An `include_global_rules` switch on each task.
+- A per-task `VLESS 辅助转换` selector with `跟随全局`, `启用`, and `禁用`.
 - Rule merge mode selection.
 - Custom policy group text.
 - MANAGED-CONFIG enablement, interval, and strict mode.
@@ -149,3 +162,7 @@ Required tests:
 - MANAGED-CONFIG renders as the first line with encoded task URL.
 - Custom policy groups render after upstream groups.
 - Renderer still appends `FINAL` when custom and upstream rules omit it.
+- VLESS relay mode defaults to `global`.
+- Task `enabled` overrides a disabled global VLESS relay setting.
+- Task `disabled` overrides an enabled global VLESS relay setting.
+- Task `global` follows the global VLESS relay setting.

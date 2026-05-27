@@ -22,6 +22,7 @@ type CreateInput struct {
 	Name                   string `json:"name"`
 	SourceURL              string `json:"source_url"`
 	RefreshIntervalSeconds int    `json:"refresh_interval_seconds"`
+	VLESSRelayMode         string `json:"vless_relay_mode"`
 }
 
 type UpdateInput struct {
@@ -34,6 +35,7 @@ type UpdateInput struct {
 	CustomRulesText              *string `json:"custom_rules_text"`
 	RuleMergeMode                *string `json:"rule_merge_mode"`
 	CustomGroupsText             *string `json:"custom_groups_text"`
+	VLESSRelayMode               *string `json:"vless_relay_mode"`
 	ManagedConfigEnabled         *bool   `json:"managed_config_enabled"`
 	ManagedConfigIntervalSeconds *int    `json:"managed_config_interval_seconds"`
 	ManagedConfigStrict          *bool   `json:"managed_config_strict"`
@@ -53,12 +55,13 @@ func (s *Service) Create(userID int64, input CreateInput) (storage.ConversionTas
 		input.RefreshIntervalSeconds = 3600
 	}
 	input.Name = defaultTaskName(input.Name, input.SourceURL)
+	vlessRelayMode := normalizeVLESSRelayMode(input.VLESSRelayMode)
 	res, err := s.db.SQL().Exec(`
 		INSERT INTO conversion_tasks (
 			user_id, name, input_type, output_type, source_url, enabled,
-			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode
-		) VALUES (?, ?, 'clash', 'surge6', ?, 1, ?, 1, 'after_remote')`,
-		userID, input.Name, input.SourceURL, input.RefreshIntervalSeconds,
+			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode, vless_relay_mode
+		) VALUES (?, ?, 'clash', 'surge6', ?, 1, ?, 1, 'after_remote', ?)`,
+		userID, input.Name, input.SourceURL, input.RefreshIntervalSeconds, vlessRelayMode,
 	)
 	if err != nil {
 		return storage.ConversionTask{}, err
@@ -122,6 +125,9 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 	if input.CustomGroupsText != nil {
 		task.CustomGroupsText = *input.CustomGroupsText
 	}
+	if input.VLESSRelayMode != nil {
+		task.VLESSRelayMode = normalizeVLESSRelayMode(*input.VLESSRelayMode)
+	}
 	if input.ManagedConfigEnabled != nil {
 		task.ManagedConfigEnabled = *input.ManagedConfigEnabled
 	}
@@ -146,13 +152,13 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 		UPDATE conversion_tasks
 		SET name = ?, source_url = ?, refresh_interval_seconds = ?, enabled = ?,
 			merge_default_pinned_nodes = ?, include_global_rules = ?, custom_rules_text = ?,
-			rule_merge_mode = ?, custom_groups_text = ?, managed_config_enabled = ?,
+			rule_merge_mode = ?, custom_groups_text = ?, vless_relay_mode = ?, managed_config_enabled = ?,
 			managed_config_interval_seconds = ?, managed_config_strict = ?,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = ? AND id = ?`,
 		task.Name, task.SourceURL, task.RefreshIntervalSeconds, enabled, mergeDefaults,
 		includeGlobalRules, task.CustomRulesText, task.RuleMergeMode, task.CustomGroupsText,
-		managedEnabled, task.ManagedConfigIntervalSeconds, managedStrict, userID, id,
+		task.VLESSRelayMode, managedEnabled, task.ManagedConfigIntervalSeconds, managedStrict, userID, id,
 	)
 	if err != nil {
 		return storage.ConversionTask{}, err
@@ -195,7 +201,7 @@ func (s *Service) List(userID int64) ([]storage.ConversionTask, error) {
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
-			managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
+			vless_relay_mode, managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
 		WHERE user_id = ?
@@ -237,7 +243,7 @@ func (s *Service) get(userID, id int64) (storage.ConversionTask, error) {
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
-			managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
+			vless_relay_mode, managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
 		WHERE user_id = ? AND id = ?`, userID, id)
@@ -397,6 +403,15 @@ func normalizeRuleMergeMode(mode string) string {
 	}
 }
 
+func normalizeVLESSRelayMode(mode string) string {
+	switch mode {
+	case "enabled", "disabled":
+		return mode
+	default:
+		return "global"
+	}
+}
+
 func boolToInt(value bool) int {
 	if value {
 		return 1
@@ -428,7 +443,7 @@ func scanTask(row taskScanner) (storage.ConversionTask, error) {
 		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&lastSuccessAt, &lastErrorAt, &task.LastErrorMessage,
 		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.CustomGroupsText,
-		&managedEnabled, &task.ManagedConfigIntervalSeconds, &managedStrict, &task.SubscriptionToken,
+		&task.VLESSRelayMode, &managedEnabled, &task.ManagedConfigIntervalSeconds, &managedStrict, &task.SubscriptionToken,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.ConversionTask{}, err
@@ -439,6 +454,7 @@ func scanTask(row taskScanner) (storage.ConversionTask, error) {
 	task.ManagedConfigEnabled = managedEnabled == 1
 	task.ManagedConfigStrict = managedStrict == 1
 	task.RuleMergeMode = normalizeRuleMergeMode(task.RuleMergeMode)
+	task.VLESSRelayMode = normalizeVLESSRelayMode(task.VLESSRelayMode)
 	if task.ManagedConfigIntervalSeconds == 0 {
 		task.ManagedConfigIntervalSeconds = 86400
 	}

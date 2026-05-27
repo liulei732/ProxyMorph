@@ -61,6 +61,7 @@ export const translations = {
       ruleMergeMode: "规则合并方式",
       customRules: "自定义规则",
       customGroups: "自定义策略组",
+      vlessRelayMode: "VLESS 辅助转换",
       managedConfig: "启用 MANAGED-CONFIG",
       managedInterval: "托管刷新间隔",
       managedStrict: "严格模式",
@@ -125,6 +126,11 @@ export const translations = {
       custom_first_dedupe: "自定义优先并去重",
       upstream_first_dedupe: "上游优先并去重",
     },
+    vlessRelayModes: {
+      global: "跟随全局",
+      enabled: "启用",
+      disabled: "禁用",
+    },
   },
   en: {
     productDescription: "Convert Clash subscriptions, compose fixed nodes, ship Surge 6 output.",
@@ -175,6 +181,7 @@ export const translations = {
       ruleMergeMode: "Rule merge mode",
       customRules: "Custom rules",
       customGroups: "Custom policy groups",
+      vlessRelayMode: "VLESS helper conversion",
       managedConfig: "Enable MANAGED-CONFIG",
       managedInterval: "Managed interval",
       managedStrict: "Strict mode",
@@ -238,6 +245,11 @@ export const translations = {
       upstream_first: "Upstream first",
       custom_first_dedupe: "Custom first with dedupe",
       upstream_first_dedupe: "Upstream first with dedupe",
+    },
+    vlessRelayModes: {
+      global: "Follow global",
+      enabled: "Enabled",
+      disabled: "Disabled",
     },
   },
 } as const;

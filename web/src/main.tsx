@@ -22,12 +22,14 @@ type Task = {
   CustomRulesText: string;
   RuleMergeMode: RuleMergeMode;
   CustomGroupsText: string;
+  VLESSRelayMode: VLESSRelayMode;
   ManagedConfigEnabled: boolean;
   ManagedConfigIntervalSeconds: number;
   ManagedConfigStrict: boolean;
 };
 
 type RuleMergeMode = "custom_first" | "upstream_first" | "custom_first_dedupe" | "upstream_first_dedupe";
+type VLESSRelayMode = "global" | "enabled" | "disabled";
 
 type RuleConfig = {
   CustomRulesText: string;
@@ -351,6 +353,7 @@ type TaskUpdateInput = {
   custom_rules_text?: string;
   rule_merge_mode?: RuleMergeMode;
   custom_groups_text?: string;
+  vless_relay_mode?: VLESSRelayMode;
   managed_config_enabled?: boolean;
   managed_config_interval_seconds?: number;
   managed_config_strict?: boolean;
@@ -449,6 +452,7 @@ function TaskRow({
       custom_rules_text: String(form.get("custom_rules_text") || ""),
       rule_merge_mode: String(form.get("rule_merge_mode") || "custom_first") as RuleMergeMode,
       custom_groups_text: String(form.get("custom_groups_text") || ""),
+      vless_relay_mode: String(form.get("vless_relay_mode") || "global") as VLESSRelayMode,
       managed_config_enabled: form.get("managed_config_enabled") === "on",
       managed_config_interval_seconds: Number(form.get("managed_config_interval_seconds") || 86400),
       managed_config_strict: form.get("managed_config_strict") === "on",
@@ -484,6 +488,7 @@ function TaskRow({
           <label className="check-label"><input name="merge_default_pinned_nodes" type="checkbox" defaultChecked={task.MergeDefaultPinnedNodes} /> {t.forms.mergeDefaults}</label>
           <label className="check-label"><input name="include_global_rules" type="checkbox" defaultChecked={task.IncludeGlobalRules} /> {t.forms.includeGlobalRules}</label>
           <label>{t.forms.ruleMergeMode}<select name="rule_merge_mode" defaultValue={task.RuleMergeMode}>{ruleMergeOptions(t)}</select></label>
+          <label>{t.forms.vlessRelayMode}<select name="vless_relay_mode" defaultValue={task.VLESSRelayMode || "global"}>{vlessRelayModeOptions(t)}</select></label>
           <label className="check-label"><input name="managed_config_enabled" type="checkbox" defaultChecked={task.ManagedConfigEnabled} /> {t.forms.managedConfig}</label>
           <label>{t.forms.managedInterval}<input name="managed_config_interval_seconds" type="number" min="60" defaultValue={task.ManagedConfigIntervalSeconds || 86400} /></label>
           <label className="check-label"><input name="managed_config_strict" type="checkbox" defaultChecked={task.ManagedConfigStrict} /> {t.forms.managedStrict}</label>
@@ -500,6 +505,12 @@ function TaskRow({
 function ruleMergeOptions(t: typeof translations[Language]) {
   return (["custom_first", "upstream_first", "custom_first_dedupe", "upstream_first_dedupe"] as RuleMergeMode[]).map((mode) => (
     <option key={mode} value={mode}>{t.ruleMergeModes[mode]}</option>
+  ));
+}
+
+function vlessRelayModeOptions(t: typeof translations[Language]) {
+  return (["global", "enabled", "disabled"] as VLESSRelayMode[]).map((mode) => (
+    <option key={mode} value={mode}>{t.vlessRelayModes[mode]}</option>
   ));
 }
 

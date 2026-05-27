@@ -30,6 +30,7 @@ type ConversionTask struct {
 	CustomRulesText              string
 	RuleMergeMode                string
 	CustomGroupsText             string
+	VLESSRelayMode               string
 	ManagedConfigEnabled         bool
 	ManagedConfigIntervalSeconds int
 	ManagedConfigStrict          bool

@@ -24,6 +24,9 @@ func TestCreateAndListTasks(t *testing.T) {
 	if task.InputType != "clash" || task.OutputType != "surge6" || !task.Enabled {
 		t.Fatalf("unexpected task defaults: %#v", task)
 	}
+	if task.VLESSRelayMode != "global" {
+		t.Fatalf("VLESSRelayMode = %q, want global", task.VLESSRelayMode)
+	}
 	tasks, err := service.List(userID)
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
@@ -43,6 +46,29 @@ func TestCreateAndListTasks(t *testing.T) {
 	}
 	if taskID != task.ID {
 		t.Fatalf("token task_id = %d, want %d", taskID, task.ID)
+	}
+}
+
+func TestCreateTaskAcceptsVLESSRelayMode(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+
+	task, err := service.Create(userID, CreateInput{
+		Name:                   "Main",
+		SourceURL:              "https://example.com/clash.yaml",
+		RefreshIntervalSeconds: 3600,
+		VLESSRelayMode:         "disabled",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if task.VLESSRelayMode != "disabled" {
+		t.Fatalf("VLESSRelayMode = %q, want disabled", task.VLESSRelayMode)
 	}
 }
 
@@ -145,6 +171,7 @@ func TestUpdateTaskChangesSurgeConfigFields(t *testing.T) {
 		CustomRulesText:              stringPtr("DOMAIN,task.example,DIRECT"),
 		RuleMergeMode:                stringPtr("upstream_first_dedupe"),
 		CustomGroupsText:             stringPtr("Manual = select, Proxy, DIRECT"),
+		VLESSRelayMode:               stringPtr("enabled"),
 		ManagedConfigEnabled:         &managedEnabled,
 		ManagedConfigIntervalSeconds: intPtr(7200),
 		ManagedConfigStrict:          &managedStrict,
@@ -157,6 +184,9 @@ func TestUpdateTaskChangesSurgeConfigFields(t *testing.T) {
 	}
 	if next.CustomGroupsText != "Manual = select, Proxy, DIRECT" || !next.ManagedConfigEnabled || next.ManagedConfigIntervalSeconds != 7200 || !next.ManagedConfigStrict {
 		t.Fatalf("unexpected group/managed config: %#v", next)
+	}
+	if next.VLESSRelayMode != "enabled" {
+		t.Fatalf("VLESSRelayMode = %q, want enabled", next.VLESSRelayMode)
 	}
 }
 

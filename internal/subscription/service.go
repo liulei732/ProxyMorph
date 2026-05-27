@@ -91,7 +91,7 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	}
 	log.Printf("subscription task=%d stage=pinned status=ok nodes=%d merge_default=%t", task.ID, len(pinned), task.MergeDefaultPinnedNodes)
 	doc.Nodes = convert.MergeNodes(doc.Nodes, pinned, convert.MergeOptions{Mode: task.PinnedNodeOrderMode})
-	if s.vlessRelayEnabled() {
+	if s.vlessRelayEnabled(task) {
 		relayStartedAt := time.Now()
 		s.configureRelayHost(relayHost)
 		doc.Nodes, err = s.vlessRelay.Configure(doc.Nodes)
@@ -144,8 +144,14 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	return output, nil
 }
 
-func (s *Service) vlessRelayEnabled() bool {
+func (s *Service) vlessRelayEnabled(task storage.ConversionTask) bool {
 	if s.vlessRelay == nil {
+		return false
+	}
+	switch normalizeVLESSRelayMode(task.VLESSRelayMode) {
+	case "enabled":
+		return true
+	case "disabled":
 		return false
 	}
 	enabled, err := s.tasks.VLESSRelayEnabled()
@@ -195,7 +201,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
-			managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
+			vless_relay_mode, managed_config_enabled, managed_config_interval_seconds, managed_config_strict,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
 		WHERE id = ?`, taskID).Scan(
@@ -203,7 +209,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&task.LastErrorMessage,
 		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.CustomGroupsText,
-		&managedEnabled, &task.ManagedConfigIntervalSeconds, &managedStrict, &task.SubscriptionToken,
+		&task.VLESSRelayMode, &managedEnabled, &task.ManagedConfigIntervalSeconds, &managedStrict, &task.SubscriptionToken,
 	)
 	task.Enabled = enabled == 1
 	task.MergeDefaultPinnedNodes = mergeDefaults == 1
@@ -213,10 +219,20 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 	if task.RuleMergeMode == "" {
 		task.RuleMergeMode = "custom_first"
 	}
+	task.VLESSRelayMode = normalizeVLESSRelayMode(task.VLESSRelayMode)
 	if task.ManagedConfigIntervalSeconds == 0 {
 		task.ManagedConfigIntervalSeconds = 86400
 	}
 	return task, err
+}
+
+func normalizeVLESSRelayMode(mode string) string {
+	switch mode {
+	case "enabled", "disabled":
+		return mode
+	default:
+		return "global"
+	}
 }
 
 func (s *Service) surgeConfig(task storage.ConversionTask, relayHost string) (convert.SurgeConfig, error) {
