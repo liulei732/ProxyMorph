@@ -47,7 +47,7 @@ func ParseClash(data []byte) (Document, error) {
 				node.Params[key] = value
 			}
 		}
-		if node.Protocol == "trojan" || node.Protocol == "vless" || node.Protocol == "vmess" {
+		if node.Protocol == "trojan" || node.Protocol == "vless" || node.Protocol == "vmess" || node.Protocol == "anytls" {
 			copyBoolParam(node.Params, "skip_cert_verify", proxy["skip-cert-verify"])
 			copyClashParam(node.Params, "network", proxy["network"])
 			if wsOpts, ok := proxy["ws-opts"].(map[string]any); ok {
@@ -56,6 +56,10 @@ func ParseClash(data []byte) (Document, error) {
 					copyClashParam(node.Params, "ws_host", headers["Host"])
 				}
 			}
+		}
+		if node.Protocol == "anytls" {
+			copyBoolParam(node.Params, "udp", proxy["udp"])
+			copyClashParam(node.Params, "client_fingerprint", proxy["client-fingerprint"])
 		}
 		if node.Protocol == "vless" || node.Protocol == "vmess" {
 			copyClashParam(node.Params, "uuid", proxy["uuid"])

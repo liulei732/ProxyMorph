@@ -158,7 +158,7 @@ func (s *Service) generateTask(task storage.ConversionTask, relayHost string, pe
 		s.recordRun(task.ID, "error", err.Error())
 		return s.cachedOrError(task.ID, err)
 	}
-	output, err := convert.RenderSurge6WithConfig(doc.Nodes, doc.Groups, doc.Rules, surgeConfig)
+	rendered, err := convert.RenderSurge6WithWarnings(doc.Nodes, doc.Groups, doc.Rules, surgeConfig)
 	if err != nil {
 		log.Printf("subscription task=%d stage=render status=error error=%q", task.ID, err)
 		if !persist {
@@ -166,6 +166,20 @@ func (s *Service) generateTask(task storage.ConversionTask, relayHost string, pe
 		}
 		s.recordRun(task.ID, "error", err.Error())
 		return "", err
+	}
+	output := rendered.Output
+	if rendered.Warning != "" {
+		warnErr := errors.New(rendered.Warning)
+		log.Printf("subscription task=%d stage=render status=warning warning=%q", task.ID, rendered.Warning)
+		if !persist {
+			return output, warnErr
+		}
+		if err := s.storeCache(task.ID, output); err != nil {
+			log.Printf("subscription task=%d stage=cache status=error error=%q", task.ID, err)
+			return "", err
+		}
+		s.recordRun(task.ID, "error", rendered.Warning)
+		return output, warnErr
 	}
 	if !persist {
 		log.Printf("subscription task=%d stage=render status=ok preview=true nodes=%d groups=%d output_bytes=%d", task.ID, len(doc.Nodes), len(doc.Groups), len(output))

@@ -11,22 +11,12 @@ export type ProxyGroupCandidate = {
   members: string[];
 };
 
-const subscriptionInfoPatterns = [
-  /剩余流量/i,
-  /流量/i,
-  /重置/i,
-  /套餐到期/i,
-  /到期/i,
-  /官网/i,
-  /刷新订阅/i,
-  /traffic/i,
-  /expire/i,
-  /reset/i,
-];
+export const defaultSubscriptionInfoKeywordsText = "剩余流量\n流量\n重置\n套餐到期\n到期\n官网\n刷新订阅\ntraffic\nexpire\nreset";
 
-export function parseProxyNodeCandidates(content: string): ProxyNodeCandidate[] {
+export function parseProxyNodeCandidates(content: string, subscriptionInfoKeywordsText = defaultSubscriptionInfoKeywordsText): ProxyNodeCandidate[] {
   const result: ProxyNodeCandidate[] = [];
   let inProxySection = false;
+  const subscriptionInfoPatterns = subscriptionInfoPatternsFromText(subscriptionInfoKeywordsText);
 
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -44,7 +34,7 @@ export function parseProxyNodeCandidates(content: string): ProxyNodeCandidate[] 
     if (!name) continue;
     result.push({
       name,
-      category: isSubscriptionInfoNode(name) ? "subscription_info" : "regular",
+      category: isSubscriptionInfoNode(name, subscriptionInfoPatterns) ? "subscription_info" : "regular",
     });
   }
 
@@ -81,8 +71,19 @@ export function parseProxyGroupCandidates(content: string): ProxyGroupCandidate[
   return result;
 }
 
-function isSubscriptionInfoNode(name: string) {
-  return subscriptionInfoPatterns.some((pattern) => pattern.test(name));
+function isSubscriptionInfoNode(name: string, patterns: RegExp[]) {
+  if (!patterns.length) return false;
+  return patterns.some((pattern) => pattern.test(name));
+}
+
+function subscriptionInfoPatternsFromText(text: string) {
+  const keywords = text.split(/\r?\n|,/).map((keyword) => keyword.trim()).filter(Boolean);
+  const source = keywords.length ? keywords : defaultSubscriptionInfoKeywordsText.split(/\r?\n/);
+  return source.map((keyword) => new RegExp(escapeRegExp(keyword), "i"));
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function splitCommaList(value: string) {

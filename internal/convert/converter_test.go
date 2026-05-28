@@ -183,6 +183,118 @@ rules:
 	}
 }
 
+func TestParseClashAndRenderAnyTLSOptions(t *testing.T) {
+	input := []byte(`
+proxies:
+  - name: "香港 01 AnyTLS"
+    type: anytls
+    server: at01-xhro2n.fork2026.com
+    port: 18611
+    password: 9a389c5c-e2b7-3516-8871-22ee7c4e1b7d
+    udp: true
+    sni: www.baidu.com
+    skip-cert-verify: true
+    client-fingerprint: firefox
+rules:
+  - FINAL,Proxy
+`)
+	doc, err := ParseClash(input)
+	if err != nil {
+		t.Fatalf("ParseClash returned error: %v", err)
+	}
+	if len(doc.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(doc.Nodes))
+	}
+	node := doc.Nodes[0]
+	if node.Protocol != "anytls" || node.Params["skip_cert_verify"] != "true" || node.Params["client_fingerprint"] != "firefox" || node.Params["udp"] != "true" {
+		t.Fatalf("unexpected AnyTLS params: %#v", node)
+	}
+	out := RenderSurge6(doc.Nodes, nil, doc.Rules)
+	for _, want := range []string{
+		"香港 01 AnyTLS = anytls, at01-xhro2n.fork2026.com, 18611",
+		"password=9a389c5c-e2b7-3516-8871-22ee7c4e1b7d",
+		"sni=www.baidu.com",
+		"skip-cert-verify=true",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "skip_cert_verify") || strings.Contains(out, "client_fingerprint") || strings.Contains(out, "udp=true") {
+		t.Fatalf("output should not render Clash-only or underscored params directly:\n%s", out)
+	}
+}
+
+func TestRenderSurge6WithWarningsReportsUnsupportedAnyTLSOptions(t *testing.T) {
+	result, err := RenderSurge6WithWarnings(
+		[]Node{{
+			Name:     "香港 03 AnyTLS",
+			Protocol: "anytls",
+			Server:   "at03-hlzp2o.fork2026.com",
+			Port:     18611,
+			Params: map[string]string{
+				"password":           "secret",
+				"sni":                "www.baidu.com",
+				"skip_cert_verify":   "true",
+				"udp":                "true",
+				"client_fingerprint": "firefox",
+			},
+		}},
+		nil,
+		nil,
+		SurgeConfig{},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithWarnings returned render error: %v", err)
+	}
+	for _, want := range []string{
+		"香港 03 AnyTLS = anytls, at03-hlzp2o.fork2026.com, 18611, password=secret, sni=www.baidu.com, skip-cert-verify=true",
+		"FINAL,Proxy",
+	} {
+		if !strings.Contains(result.Output, want) {
+			t.Fatalf("output missing %q:\n%s", want, result.Output)
+		}
+	}
+	for _, want := range []string{
+		"节点可能无法等价转换：香港 03 AnyTLS",
+		"AnyTLS 的 client-fingerprint=firefox 当前 Surge 配置语法不支持",
+		"AnyTLS 的 udp=true 当前 Surge UDP relay 不支持",
+	} {
+		if !strings.Contains(result.Warning, want) {
+			t.Fatalf("warning missing %q:\n%s", want, result.Warning)
+		}
+	}
+}
+
+func TestRenderSurge6KeepsNativeSurgeProxyLine(t *testing.T) {
+	raw := "香港 03 AnyTLS = anytls, at03-hlzp2o.fork2026.com, 18611, password=secret, sni=www.baidu.com, skip-cert-verify=true, client-fingerprint=firefox, tfo=true, udp-relay=true"
+	result, err := RenderSurge6WithWarnings(
+		[]Node{{
+			Name:     "香港 03 AnyTLS",
+			Protocol: "anytls",
+			Server:   "at03-hlzp2o.fork2026.com",
+			Port:     18611,
+			Params: map[string]string{
+				"surge_raw":          raw,
+				"client_fingerprint": "firefox",
+				"udp-relay":          "true",
+			},
+		}},
+		nil,
+		nil,
+		SurgeConfig{},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithWarnings returned render error: %v", err)
+	}
+	if !strings.Contains(result.Output, raw) {
+		t.Fatalf("output should keep native Surge line:\n%s", result.Output)
+	}
+	if result.Warning != "" {
+		t.Fatalf("native Surge line should not produce compatibility warnings:\n%s", result.Warning)
+	}
+}
+
 func TestRenderSurge6WithOptionsRequiresVLESSRenderer(t *testing.T) {
 	_, err := RenderSurge6WithOptions([]Node{{Name: "VLESS", Protocol: "vless", Server: "edge.example.com", Port: 443}}, nil, nil, RenderOptions{})
 	if !errors.Is(err, ErrVLESSRendererRequired) {
@@ -257,6 +369,85 @@ func TestRenderSurge6UsesConfiguredFinalRulePolicy(t *testing.T) {
 	if strings.Contains(out, "FINAL,Proxy") {
 		t.Fatalf("output should not keep default FINAL policy when configured:\n%s", out)
 	}
+}
+
+func TestRenderSurge6ConvertsClashMatchToSingleSurgeFinalRule(t *testing.T) {
+	out := RenderSurge6(
+		[]Node{{Name: "Remote", Protocol: "ss", Server: "remote.example", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "pass"}}},
+		[]Group{{Name: "🍃 Proxies", Type: "select", Proxies: []string{"Remote"}}},
+		[]string{
+			"IP-CIDR,202.160.128.0/22,🍃 Proxies",
+			"GEOIP,CN,DIRECT",
+			"MATCH,🍃 Proxies",
+		},
+	)
+	if strings.Contains(out, "\nMATCH,") {
+		t.Fatalf("output should not keep Clash MATCH rules:\n%s", out)
+	}
+	assertOrder(t, out, "IP-CIDR,202.160.128.0/22,🍃 Proxies", "GEOIP,CN,DIRECT", "FINAL,🍃 Proxies")
+	if strings.Contains(out, "\nMATCH,") {
+		t.Fatalf("output should use MATCH policy as final policy instead of appending default final:\n%s", out)
+	}
+}
+
+func TestRenderSurge6WithWarningsKeepsOutputWhenRulePolicyIsMissing(t *testing.T) {
+	result, err := RenderSurge6WithWarnings(
+		[]Node{{Name: "Remote", Protocol: "ss", Server: "remote.example", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "pass"}}},
+		[]Group{{Name: "🍃 Proxies", Type: "select", Proxies: []string{"Remote"}}},
+		[]string{
+			"DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/gfw.txt,Proxy",
+			"MATCH,Proxy",
+		},
+		SurgeConfig{},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithWarnings returned render error: %v", err)
+	}
+	assertOrder(t, result.Output,
+		"🍃 Proxies = select, Remote",
+		"DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/gfw.txt,Proxy",
+		"FINAL,Proxy",
+	)
+	if result.Warning == "" {
+		t.Fatal("RenderSurge6WithWarnings should keep the validation warning")
+	}
+	for _, want := range []string{
+		"规则引用了不存在的策略：Proxy",
+		"DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/gfw.txt,Proxy",
+		"请修改规则策略或添加同名策略组",
+		"🍃 Proxies",
+	} {
+		if !strings.Contains(result.Warning, want) {
+			t.Fatalf("warning missing %q:\nwarning=%s", want, result.Warning)
+		}
+	}
+}
+
+func TestRenderSurge6KeepsProxyRulePolicyWhenProxyGroupExists(t *testing.T) {
+	out := RenderSurge6(
+		[]Node{{Name: "Remote", Protocol: "ss", Server: "remote.example", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "pass"}}},
+		[]Group{{Name: "Proxy", Type: "select", Proxies: []string{"Remote"}}},
+		[]string{"DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/gfw.txt,Proxy"},
+	)
+	assertOrder(t, out,
+		"Proxy = select, Remote",
+		"DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/gfw.txt,Proxy",
+		"FINAL,Proxy",
+	)
+}
+
+func TestRenderSurge6KeepsProxyRulePolicyWhenProxyNodeExists(t *testing.T) {
+	out := RenderSurge6(
+		[]Node{{Name: "Proxy", Protocol: "ss", Server: "remote.example", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "pass"}}},
+		[]Group{{Name: "🍃 Proxies", Type: "select", Proxies: []string{"Proxy"}}},
+		[]string{"DOMAIN-SUFFIX,example.com,Proxy"},
+	)
+	assertOrder(t, out,
+		"Proxy = ss, remote.example, 8388",
+		"🍃 Proxies = select, Proxy",
+		"DOMAIN-SUFFIX,example.com,Proxy",
+		"FINAL,🍃 Proxies",
+	)
 }
 
 func TestRenderSurge6WithCustomRulesCustomFirst(t *testing.T) {

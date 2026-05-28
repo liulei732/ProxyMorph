@@ -32,6 +32,29 @@ Proxy = select, 美国A-线路1 | TCP, 香港A-CMI专线1
     ]);
   });
 
+  it("uses custom subscription info keywords when provided", () => {
+    const nodes = parseProxyNodeCandidates(`
+[Proxy]
+余额：33.69 GB = trojan, balance.example.com, 2096, password=secret
+美国A-线路1 | TCP = trojan, a.example.com, 443, password=secret
+`, "余额\n过期时间");
+
+    assert.deepEqual(nodes, [
+      { name: "余额：33.69 GB", category: "subscription_info" },
+      { name: "美国A-线路1 | TCP", category: "regular" },
+    ]);
+  });
+
+  it("falls back to default subscription info keywords when custom keywords are blank", () => {
+    const nodes = parseProxyNodeCandidates(`
+[Proxy]
+剩余流量：33.69 GB = trojan, balance.example.com, 2096, password=secret
+美国A-线路1 | TCP = trojan, a.example.com, 443, password=secret
+`, "   ");
+
+    assert.deepEqual(nodes.map((node) => node.category), ["subscription_info", "regular"]);
+  });
+
   it("extracts proxy group members from the Proxy Group section", () => {
     const groups = parseProxyGroupCandidates(`
 [Proxy]

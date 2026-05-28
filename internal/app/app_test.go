@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/liulei/proxymorph/internal/config"
@@ -81,7 +82,7 @@ func TestRuleConfigEndpointRoundTrip(t *testing.T) {
 	}
 	cookie := loginRes.Result().Cookies()[0]
 
-	putReq := httptest.NewRequest(http.MethodPut, "/api/rule-config", bytes.NewBufferString(`{"custom_rules_text":"DOMAIN,global.example,DIRECT","vless_relay_enabled":true}`))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/rule-config", bytes.NewBufferString(`{"custom_rules_text":"DOMAIN,global.example,DIRECT","vless_relay_enabled":true,"subscription_info_keywords_text":"余额\n重置时间"}`))
 	putReq.AddCookie(cookie)
 	putRes := httptest.NewRecorder()
 	app.Handler().ServeHTTP(putRes, putReq)
@@ -97,13 +98,14 @@ func TestRuleConfigEndpointRoundTrip(t *testing.T) {
 		t.Fatalf("get status = %d body=%q", getRes.Code, getRes.Body.String())
 	}
 	var payload struct {
-		CustomRulesText   string
-		VLESSRelayEnabled bool
+		CustomRulesText              string
+		VLESSRelayEnabled            bool
+		SubscriptionInfoKeywordsText string
 	}
 	if err := json.NewDecoder(getRes.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.CustomRulesText != "DOMAIN,global.example,DIRECT" || !payload.VLESSRelayEnabled {
+	if payload.CustomRulesText != "DOMAIN,global.example,DIRECT" || !payload.VLESSRelayEnabled || payload.SubscriptionInfoKeywordsText != "余额\n重置时间" {
 		t.Fatalf("unexpected config: %#v", payload)
 	}
 }
@@ -152,5 +154,56 @@ func TestManagedConfigDefaultsEndpointRoundTrip(t *testing.T) {
 	}
 	if !payload.Enabled || payload.URLMode != "custom" || payload.CustomURL != "https://profiles.example.com/default.conf" || payload.IntervalSeconds != 3600 || !payload.Strict {
 		t.Fatalf("unexpected defaults: %#v", payload)
+	}
+}
+
+func TestCachedPreviewEndpointReturnsCachedOutput(t *testing.T) {
+	cfg := config.Config{Addr: ":0", DataDir: t.TempDir(), SessionSecret: "test-secret", InitialAdminUsername: "admin", InitialAdminPassword: "password"}
+	app, err := New(cfg, filepath.Join(cfg.DataDir, "test.db"))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	defer app.Close()
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"username":"admin","password":"password"}`))
+	loginRes := httptest.NewRecorder()
+	app.Handler().ServeHTTP(loginRes, loginReq)
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%q", loginRes.Code, loginRes.Body.String())
+	}
+	cookie := loginRes.Result().Cookies()[0]
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/tasks", bytes.NewBufferString(`{"name":"Main","source_url":"https://example.com/clash.yaml","refresh_interval_seconds":3600}`))
+	createReq.AddCookie(cookie)
+	createRes := httptest.NewRecorder()
+	app.Handler().ServeHTTP(createRes, createReq)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%q", createRes.Code, createRes.Body.String())
+	}
+	var created struct {
+		ID int64
+	}
+	if err := json.NewDecoder(createRes.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if _, err := app.db.SQL().Exec(`INSERT INTO output_cache (task_id, content) VALUES (?, ?)`, created.ID, "[Proxy]\nA = direct"); err != nil {
+		t.Fatalf("insert cache: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+strconv.FormatInt(created.ID, 10)+"/cached-preview", nil)
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	app.Handler().ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("cached preview status = %d body=%q", res.Code, res.Body.String())
+	}
+	var payload struct {
+		Content string
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode cached preview response: %v", err)
+	}
+	if payload.Content != "[Proxy]\nA = direct" {
+		t.Fatalf("content = %q", payload.Content)
 	}
 }

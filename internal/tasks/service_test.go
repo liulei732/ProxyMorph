@@ -244,14 +244,18 @@ func TestGlobalRuleConfigRoundTrip(t *testing.T) {
 	if initial.CustomRulesText != "" || initial.VLESSRelayEnabled {
 		t.Fatalf("unexpected initial config: %#v", initial)
 	}
+	if initial.SubscriptionInfoKeywordsText == "" {
+		t.Fatalf("expected default subscription info keywords: %#v", initial)
+	}
 	updated, err := service.UpdateGlobalRuleConfig(GlobalRuleConfigInput{
-		CustomRulesText:   "DOMAIN,global.example,DIRECT",
-		VLESSRelayEnabled: true,
+		CustomRulesText:              "DOMAIN,global.example,DIRECT",
+		VLESSRelayEnabled:            true,
+		SubscriptionInfoKeywordsText: "余额\n重置时间",
 	})
 	if err != nil {
 		t.Fatalf("UpdateGlobalRuleConfig returned error: %v", err)
 	}
-	if updated.CustomRulesText != "DOMAIN,global.example,DIRECT" || !updated.VLESSRelayEnabled {
+	if updated.CustomRulesText != "DOMAIN,global.example,DIRECT" || !updated.VLESSRelayEnabled || updated.SubscriptionInfoKeywordsText != "余额\n重置时间" {
 		t.Fatalf("unexpected updated config: %#v", updated)
 	}
 	enabled, err := service.VLESSRelayEnabled()
@@ -260,6 +264,37 @@ func TestGlobalRuleConfigRoundTrip(t *testing.T) {
 	}
 	if !enabled {
 		t.Fatal("VLESSRelayEnabled = false, want true")
+	}
+}
+
+func TestCachedOutputRequiresOwnerAndReturnsCachedContent(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	otherUserID := seedUserWithName(t, db, "other")
+	service := NewService(db)
+	task, err := service.Create(userID, CreateInput{Name: "Main", SourceURL: "https://example.com/a.yaml", RefreshIntervalSeconds: 3600})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if _, err := service.CachedOutput(userID, task.ID); err == nil {
+		t.Fatal("CachedOutput returned content before cache exists")
+	}
+	if _, err := db.SQL().Exec(`INSERT INTO output_cache (task_id, content) VALUES (?, ?)`, task.ID, "[Proxy]\nA = direct"); err != nil {
+		t.Fatalf("insert cache: %v", err)
+	}
+	content, err := service.CachedOutput(userID, task.ID)
+	if err != nil {
+		t.Fatalf("CachedOutput returned error: %v", err)
+	}
+	if content != "[Proxy]\nA = direct" {
+		t.Fatalf("content = %q", content)
+	}
+	if _, err := service.CachedOutput(otherUserID, task.ID); err == nil {
+		t.Fatal("CachedOutput allowed another user to read task cache")
 	}
 }
 
@@ -378,7 +413,12 @@ func intPtr(value int) *int {
 
 func seedUser(t *testing.T, db *storage.DB) int64 {
 	t.Helper()
-	res, err := db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES ('admin', 'hash')`)
+	return seedUserWithName(t, db, "admin")
+}
+
+func seedUserWithName(t *testing.T, db *storage.DB, username string) int64 {
+	t.Helper()
+	res, err := db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES (?, 'hash')`, username)
 	if err != nil {
 		t.Fatal(err)
 	}

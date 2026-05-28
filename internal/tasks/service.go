@@ -19,6 +19,8 @@ type Service struct {
 	db *storage.DB
 }
 
+const defaultSubscriptionInfoKeywordsText = "剩余流量\n流量\n重置\n套餐到期\n到期\n官网\n刷新订阅\ntraffic\nexpire\nreset"
+
 type CreateInput struct {
 	Name                   string `json:"name"`
 	SourceURL              string `json:"source_url"`
@@ -47,8 +49,9 @@ type UpdateInput struct {
 }
 
 type GlobalRuleConfigInput struct {
-	CustomRulesText   string `json:"custom_rules_text"`
-	VLESSRelayEnabled bool   `json:"vless_relay_enabled"`
+	CustomRulesText              string `json:"custom_rules_text"`
+	VLESSRelayEnabled            bool   `json:"vless_relay_enabled"`
+	SubscriptionInfoKeywordsText string `json:"subscription_info_keywords_text"`
 }
 
 type ManagedConfigDefaultsInput struct {
@@ -304,13 +307,18 @@ func randomToken() (string, error) {
 }
 
 func (s *Service) GlobalRuleConfig() (storage.GlobalRuleConfig, error) {
-	values, err := s.settings("global_custom_rules_text", "vless_relay_enabled")
+	values, err := s.settings("global_custom_rules_text", "vless_relay_enabled", "subscription_info_keywords_text")
 	if err != nil {
 		return storage.GlobalRuleConfig{}, err
 	}
+	keywords := strings.TrimSpace(values["subscription_info_keywords_text"])
+	if keywords == "" {
+		keywords = defaultSubscriptionInfoKeywordsText
+	}
 	return storage.GlobalRuleConfig{
-		CustomRulesText:   values["global_custom_rules_text"],
-		VLESSRelayEnabled: settingBool(values["vless_relay_enabled"]),
+		CustomRulesText:              values["global_custom_rules_text"],
+		VLESSRelayEnabled:            settingBool(values["vless_relay_enabled"]),
+		SubscriptionInfoKeywordsText: keywords,
 	}, nil
 }
 
@@ -324,7 +332,22 @@ func (s *Service) UpdateGlobalRuleConfig(input GlobalRuleConfigInput) (storage.G
 	if err := s.setSetting("vless_relay_enabled", boolSetting(input.VLESSRelayEnabled)); err != nil {
 		return storage.GlobalRuleConfig{}, err
 	}
+	if err := s.setSetting("subscription_info_keywords_text", strings.TrimSpace(input.SubscriptionInfoKeywordsText)); err != nil {
+		return storage.GlobalRuleConfig{}, err
+	}
 	return s.GlobalRuleConfig()
+}
+
+func (s *Service) CachedOutput(userID, taskID int64) (string, error) {
+	if _, err := s.Get(userID, taskID); err != nil {
+		return "", err
+	}
+	var content string
+	err := s.db.SQL().QueryRow(`SELECT content FROM output_cache WHERE task_id = ?`, taskID).Scan(&content)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	return content, err
 }
 
 func (s *Service) VLESSRelayEnabled() (bool, error) {

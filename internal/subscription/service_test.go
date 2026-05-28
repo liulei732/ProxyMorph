@@ -431,6 +431,78 @@ func TestGenerateAppliesTaskAndGlobalRuleConfig(t *testing.T) {
 	)
 }
 
+func TestGenerateStoresOutputAndWarningForGlobalProxyRuleWhenProxyGroupMissing(t *testing.T) {
+	upstreamContent := `proxies:
+  - name: Remote
+    type: ss
+    server: remote.example
+    port: 8388
+    cipher: aes-256-gcm
+    password: pass
+proxy-groups:
+  - name: "🍃 Proxies"
+    type: select
+    proxies:
+      - Remote
+rules:
+  - DOMAIN,upstream.example,🍃 Proxies
+`
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/clash.yaml")
+	_, err = db.SQL().Exec(`UPDATE conversion_tasks SET include_global_rules = 1, rule_merge_mode = 'custom_first' WHERE id = 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.SQL().Exec(`INSERT INTO app_settings (key, value) VALUES ('global_custom_rules_text', 'DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/gfw.txt,Proxy')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	output, err := service.GenerateByTaskID(1)
+	if err == nil {
+		t.Fatal("GenerateByTaskID should return a warning error when a global rule references a missing policy")
+	}
+	assertSubscriptionOrder(t, output,
+		"🍃 Proxies = select, Remote",
+		"DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/gfw.txt,Proxy",
+		"DOMAIN,upstream.example,🍃 Proxies",
+		"FINAL,🍃 Proxies",
+	)
+	var cached string
+	if err := db.SQL().QueryRow(`SELECT content FROM output_cache WHERE task_id = 1`).Scan(&cached); err != nil {
+		t.Fatalf("expected output cache despite warning: %v", err)
+	}
+	if cached != output {
+		t.Fatalf("cached output should match returned output")
+	}
+	var lastError string
+	if err := db.SQL().QueryRow(`SELECT last_error_message FROM conversion_tasks WHERE id = 1`).Scan(&lastError); err != nil {
+		t.Fatalf("read last error: %v", err)
+	}
+	for _, want := range []string{
+		"规则引用了不存在的策略：Proxy",
+		"DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/gfw.txt,Proxy",
+		"请修改规则策略或添加同名策略组",
+		"🍃 Proxies",
+	} {
+		if !strings.Contains(err.Error(), want) || !strings.Contains(lastError, want) {
+			t.Fatalf("error missing %q:\nerr=%v\nlastError=%s", want, err, lastError)
+		}
+	}
+}
+
 func TestManagedConfigTaskFollowsEnabledGlobalCustomURL(t *testing.T) {
 	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\n"
 

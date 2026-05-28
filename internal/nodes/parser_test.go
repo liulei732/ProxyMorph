@@ -90,6 +90,58 @@ func TestParseVMessURI(t *testing.T) {
 	}
 }
 
+func TestParseSurgeProxyLine(t *testing.T) {
+	line := "香港 03 AnyTLS = anytls, at03-hlzp2o.fork2026.com, 18611, password=9a389c5c-e2b7-3516-8871-22ee7c4e1b7d, sni=www.baidu.com, skip-cert-verify=true, client-fingerprint=firefox, tfo=true, udp-relay=true"
+	node, err := ParseURI(line)
+	if err != nil {
+		t.Fatalf("ParseURI returned error: %v", err)
+	}
+	if node.Name != "香港 03 AnyTLS" || node.Protocol != "anytls" || node.Server != "at03-hlzp2o.fork2026.com" || node.Port != 18611 || !node.Pinned {
+		t.Fatalf("unexpected node: %#v", node)
+	}
+	for key, want := range map[string]string{
+		"password":           "9a389c5c-e2b7-3516-8871-22ee7c4e1b7d",
+		"sni":                "www.baidu.com",
+		"skip_cert_verify":   "true",
+		"client_fingerprint": "firefox",
+		"tfo":                "true",
+		"udp-relay":          "true",
+		"surge_raw":          line,
+	} {
+		if node.Params[key] != want {
+			t.Fatalf("param %s = %q, want %q; params=%#v", key, node.Params[key], want, node.Params)
+		}
+	}
+}
+
+func TestParseSurgeProxyLineWithQuotedCommasAndWebSocket(t *testing.T) {
+	node, err := ParseURI(`"HK, Edge" = trojan, edge.example.com, 2053, password=secret, sni=sni.example.com, skip-cert-verify=true, ws=true, ws-path=/video, ws-headers=Host:host.example.com`)
+	if err != nil {
+		t.Fatalf("ParseURI returned error: %v", err)
+	}
+	if node.Name != "HK, Edge" || node.Protocol != "trojan" || node.Server != "edge.example.com" || node.Port != 2053 {
+		t.Fatalf("unexpected node: %#v", node)
+	}
+	for key, want := range map[string]string{
+		"password":         "secret",
+		"sni":              "sni.example.com",
+		"skip_cert_verify": "true",
+		"network":          "ws",
+		"ws_path":          "/video",
+		"ws_host":          "host.example.com",
+	} {
+		if node.Params[key] != want {
+			t.Fatalf("param %s = %q, want %q; params=%#v", key, node.Params[key], want, node.Params)
+		}
+	}
+}
+
+func TestParseRejectsSurgeSectionHeader(t *testing.T) {
+	if _, err := ParseURI("[Proxy]"); err == nil {
+		t.Fatal("expected section header to be skipped")
+	}
+}
+
 func TestParseRejectsUnsupportedURI(t *testing.T) {
 	if _, err := ParseURI("http://example.com"); err == nil {
 		t.Fatal("expected unsupported URI error")

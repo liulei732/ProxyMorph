@@ -36,6 +36,9 @@ func (h Handler) Import(w http.ResponseWriter, r *http.Request) {
 	if len(uris) == 0 && input.Text != "" {
 		for _, line := range strings.Split(input.Text, "\n") {
 			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+					continue
+				}
 				uris = append(uris, trimmed)
 			}
 		}

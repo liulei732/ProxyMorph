@@ -43,8 +43,9 @@ type ConversionTask struct {
 }
 
 type GlobalRuleConfig struct {
-	CustomRulesText   string
-	VLESSRelayEnabled bool
+	CustomRulesText              string
+	VLESSRelayEnabled            bool
+	SubscriptionInfoKeywordsText string
 }
 
 type ManagedConfigDefaults struct {

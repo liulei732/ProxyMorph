@@ -111,6 +111,8 @@ func (h Handler) ServeTask(w http.ResponseWriter, r *http.Request) {
 		h.Generate(w, r, id)
 	case action == "preview" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
 		h.Preview(w, r, id)
+	case action == "cached-preview" && r.Method == http.MethodGet:
+		h.CachedPreview(w, r, id)
 	default:
 		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -145,6 +147,11 @@ func (h Handler) Generate(w http.ResponseWriter, r *http.Request, id int64) {
 	}
 	output, err := h.Subscription.GenerateByTaskID(id)
 	if err != nil {
+		if output != "" {
+			task, _ := h.Service.Get(httpapi.UserID(r.Context()), id)
+			httpapi.JSON(w, http.StatusOK, map[string]any{"ok": false, "task": task, "content": output, "error": err.Error()})
+			return
+		}
 		httpapi.Error(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -174,10 +181,23 @@ func (h Handler) Preview(w http.ResponseWriter, r *http.Request, id int64) {
 		output, err = h.Subscription.GenerateByTaskID(id)
 	}
 	if err != nil {
+		if output != "" {
+			httpapi.JSON(w, http.StatusOK, map[string]string{"content": output, "error": err.Error()})
+			return
+		}
 		httpapi.Error(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	httpapi.JSON(w, http.StatusOK, map[string]string{"content": output})
+}
+
+func (h Handler) CachedPreview(w http.ResponseWriter, r *http.Request, id int64) {
+	content, err := h.Service.CachedOutput(httpapi.UserID(r.Context()), id)
+	if err != nil {
+		httpapi.Error(w, http.StatusNotFound, "cached preview not found")
+		return
+	}
+	httpapi.JSON(w, http.StatusOK, map[string]string{"content": content})
 }
 
 func parseTaskPath(path string) (int64, string, bool) {

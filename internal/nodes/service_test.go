@@ -25,6 +25,27 @@ func TestImportURIs(t *testing.T) {
 	}
 }
 
+func TestImportURIsAcceptsSurgeProxyLines(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+
+	imported, err := service.ImportURIs(userID, []string{"香港 03 AnyTLS = anytls, at03-hlzp2o.fork2026.com, 18611, password=secret, sni=www.baidu.com, skip-cert-verify=true"})
+	if err != nil {
+		t.Fatalf("ImportURIs returned error: %v", err)
+	}
+	if len(imported) != 1 || imported[0].Name != "香港 03 AnyTLS" || imported[0].Protocol != "anytls" || imported[0].Server != "at03-hlzp2o.fork2026.com" || imported[0].Port != 18611 {
+		t.Fatalf("unexpected import: %#v", imported)
+	}
+	if imported[0].ParametersJSON == "" {
+		t.Fatalf("expected parameters json: %#v", imported[0])
+	}
+}
+
 func TestListNodesReturnsEmptySlice(t *testing.T) {
 	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

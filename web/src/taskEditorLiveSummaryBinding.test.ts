@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "main.tsx"), "utf8");
+const styles = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles.css"), "utf8");
 
 describe("task editor live summary binding", () => {
   it("uses draft values for conversion summary while editing", () => {
@@ -56,5 +57,34 @@ describe("task editor live summary binding", () => {
     assert.match(source, /memberDrafts/);
     assert.match(source, /handleMemberDraftChange\(group, event\.currentTarget\.value\)/);
     assert.doesNotMatch(source, /value=\{group\.members\.join\("\\n"\)\}/);
+  });
+
+  it("uses configurable subscription info keywords and cached preview for policy member selection", () => {
+    assert.match(source, /SubscriptionInfoKeywordsText/);
+    assert.match(source, /parseProxyNodeCandidates\(previewContent, subscriptionInfoKeywordsText\)/);
+    assert.match(source, /loadCachedPreview\(task\.ID\)/);
+    assert.match(source, /cached-preview/);
+  });
+
+  it("supports filtering and removing subscription info policy members", () => {
+    assert.match(source, /memberCategoryFilter/);
+    assert.match(source, /keywordFilter/);
+    assert.match(source, /removeSubscriptionInfoMembers/);
+    assert.match(source, /selectVisibleNodes/);
+  });
+
+  it("keeps policy member selector actions in their own dialog row", () => {
+    assert.match(styles, /\.policy-member-dialog \{[^}]*grid-template-rows:\s*auto auto auto minmax\(0, 1fr\) auto/);
+    assert.match(styles, /\.policy-member-actions \{[^}]*min-width:\s*0/);
+    assert.match(styles, /\.policy-member-actions button \{[^}]*white-space:\s*normal/);
+  });
+
+  it("shows validation warnings while keeping generated preview content", () => {
+    assert.match(source, /type TaskOutputResponse/);
+    assert.match(source, /setPreviewContent\(result\.content\)/);
+    assert.match(source, /result\.error[\s\S]*setValidationError\(result\.error\)/);
+    assert.match(source, /ValidationErrorDialog/);
+    assert.match(source, /formatValidationMessage/);
+    assert.match(styles, /\.validation-error-dialog pre \{[^}]*white-space:\s*pre-wrap/);
   });
 });

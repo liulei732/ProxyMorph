@@ -12,7 +12,14 @@ import (
 )
 
 func ParseURI(raw string) (convert.Node, error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(raw)
+	if isSurgeSectionHeader(raw) {
+		return convert.Node{}, fmt.Errorf("surge section header")
+	}
+	if strings.Contains(raw, "=") && !strings.Contains(raw, "://") {
+		return parseSurgeProxyLine(raw)
+	}
+	u, err := url.Parse(raw)
 	if err != nil {
 		return convert.Node{}, err
 	}
@@ -28,6 +35,110 @@ func ParseURI(raw string) (convert.Node, error) {
 	default:
 		return convert.Node{}, fmt.Errorf("unsupported proxy URI scheme %q", u.Scheme)
 	}
+}
+
+func parseSurgeProxyLine(raw string) (convert.Node, error) {
+	namePart, valuePart, ok := strings.Cut(raw, "=")
+	if !ok {
+		return convert.Node{}, fmt.Errorf("invalid surge proxy line")
+	}
+	name := unquoteSurgeToken(strings.TrimSpace(namePart))
+	fields := splitSurgeFields(valuePart)
+	if name == "" || len(fields) < 3 {
+		return convert.Node{}, fmt.Errorf("invalid surge proxy line")
+	}
+	port, err := strconv.Atoi(unquoteSurgeToken(fields[2]))
+	if err != nil {
+		return convert.Node{}, fmt.Errorf("invalid surge proxy port: %w", err)
+	}
+	params := make(map[string]string)
+	params["surge_raw"] = raw
+	for _, field := range fields[3:] {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok {
+			continue
+		}
+		addSurgeParam(params, strings.TrimSpace(key), unquoteSurgeToken(strings.TrimSpace(value)))
+	}
+	return convert.Node{
+		Name:     name,
+		Protocol: strings.TrimSpace(fields[0]),
+		Server:   unquoteSurgeToken(fields[1]),
+		Port:     port,
+		Params:   params,
+		Pinned:   true,
+	}, nil
+}
+
+func addSurgeParam(params map[string]string, key, value string) {
+	if value == "" {
+		return
+	}
+	switch strings.ToLower(key) {
+	case "skip-cert-verify":
+		params["skip_cert_verify"] = value
+	case "ws":
+		if strings.EqualFold(value, "true") {
+			params["network"] = "ws"
+		}
+	case "ws-path":
+		params["ws_path"] = value
+	case "ws-headers":
+		params["ws_host"] = strings.TrimPrefix(value, "Host:")
+	case "client-fingerprint":
+		params["client_fingerprint"] = value
+	default:
+		params[key] = value
+	}
+}
+
+func splitSurgeFields(value string) []string {
+	fields := make([]string, 0)
+	var current strings.Builder
+	inQuote := false
+	escaped := false
+	for _, r := range value {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			current.WriteRune(r)
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			current.WriteRune(r)
+			inQuote = !inQuote
+			continue
+		}
+		if r == ',' && !inQuote {
+			if field := strings.TrimSpace(current.String()); field != "" {
+				fields = append(fields, field)
+			}
+			current.Reset()
+			continue
+		}
+		current.WriteRune(r)
+	}
+	if field := strings.TrimSpace(current.String()); field != "" {
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func unquoteSurgeToken(value string) string {
+	if len(value) >= 2 && strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
+		value = strings.TrimPrefix(strings.TrimSuffix(value, `"`), `"`)
+		value = strings.ReplaceAll(value, `\"`, `"`)
+		value = strings.ReplaceAll(value, `\\`, `\`)
+	}
+	return value
+}
+
+func isSurgeSectionHeader(raw string) bool {
+	return strings.HasPrefix(raw, "[") && strings.HasSuffix(raw, "]")
 }
 
 func parseVMess(u *url.URL) (convert.Node, error) {

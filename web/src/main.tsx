@@ -6,7 +6,7 @@ import { getInitialLanguage, languageStorageKey, languages, translations, type L
 import { absoluteSubscriptionURL as buildAbsoluteSubscriptionURL, enabledManagedHeaderPreviewFromValues, managedHeaderPreviewFromValues, type GlobalManagedURLMode, type ManagedConfigDefaults, type ManagedIntervalMode, type ManagedPreviewValues, type ManagedURLMode, type RuleMergeMode, type TriStateMode, type VLESSRelayMode } from "./managedPreview";
 import { createPolicyGroup, membersFromText, parsePolicyGroupsText, policyGroupLine, policyGroupsText, type PolicyGroup, type PolicyGroupType } from "./policyGroups";
 import { previewRefreshTaskID, type PreviewChangeScope, type PreviewState } from "./previewState";
-import { parseProxyGroupCandidates, parseProxyNodeCandidates, type ProxyNodeCandidate } from "./surgePreviewNodes";
+import { defaultSubscriptionInfoKeywordsText, parseProxyGroupCandidates, parseProxyNodeCandidates, type ProxyNodeCandidate, type ProxyNodeCategory } from "./surgePreviewNodes";
 import { taskEditorAsideMode, taskManagedURLModes, type TaskEditorSection } from "./taskEditorSummary";
 import "./styles.css";
 
@@ -40,6 +40,7 @@ type Task = {
 type RuleConfig = {
   CustomRulesText: string;
   VLESSRelayEnabled: boolean;
+  SubscriptionInfoKeywordsText: string;
 };
 
 type PinnedNode = {
@@ -52,6 +53,11 @@ type PinnedNode = {
   DefaultInclude: boolean;
 };
 
+type TaskOutputResponse = {
+  content: string;
+  error?: string;
+};
+
 function App() {
   const [loggedIn, setLoggedIn] = React.useState(false);
   const [checkingSession, setCheckingSession] = React.useState(true);
@@ -59,13 +65,14 @@ function App() {
   const [language, setLanguage] = React.useState<Language>(() => getInitialLanguage(localStorage.getItem(languageStorageKey)));
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [nodes, setNodes] = React.useState<PinnedNode[]>([]);
-  const [ruleConfig, setRuleConfig] = React.useState<RuleConfig>({ CustomRulesText: "", VLESSRelayEnabled: false });
+  const [ruleConfig, setRuleConfig] = React.useState<RuleConfig>({ CustomRulesText: "", VLESSRelayEnabled: false, SubscriptionInfoKeywordsText: defaultSubscriptionInfoKeywordsText });
   const [managedConfigDefaults, setManagedConfigDefaults] = React.useState<ManagedConfigDefaults>(defaultManagedConfigDefaults);
   const [error, setError] = React.useState("");
   const [toast, setToast] = React.useState("");
   const [busyTaskID, setBusyTaskID] = React.useState<number | null>(null);
   const [previewContent, setPreviewContent] = React.useState("");
   const [previewState, setPreviewState] = React.useState<PreviewState>({ taskID: null });
+  const [validationError, setValidationError] = React.useState("");
   const t = translations[language];
 
   function changeLanguage(nextLanguage: Language) {
@@ -107,7 +114,7 @@ function App() {
     const [nextTasks, nextNodes, nextRuleConfig, nextManagedConfigDefaults] = await Promise.all([
       api<Task[]>("/api/tasks").catch(() => []),
       api<PinnedNode[]>("/api/nodes").catch(() => []),
-      api<RuleConfig>("/api/rule-config").catch(() => ({ CustomRulesText: "", VLESSRelayEnabled: false })),
+      api<RuleConfig>("/api/rule-config").catch(() => ({ CustomRulesText: "", VLESSRelayEnabled: false, SubscriptionInfoKeywordsText: defaultSubscriptionInfoKeywordsText })),
       api<ManagedConfigDefaults>("/api/managed-config-defaults").catch(() => defaultManagedConfigDefaults),
     ]);
     setTasks(nextTasks);
@@ -121,10 +128,22 @@ function App() {
     const taskID = previewRefreshTaskID(changedTaskID, previewState);
     if (!taskID) return;
     try {
-      const result = await api<{ content: string }>(`/api/tasks/${taskID}/preview`);
+      const result = await api<TaskOutputResponse>(`/api/tasks/${taskID}/preview`);
       setPreviewContent(result.content);
+      if (result.error) setValidationError(result.error);
     } catch {
       notify(t.preview.loadFailed);
+    }
+  }
+
+  async function loadCachedPreview(id: number) {
+    try {
+      const result = await api<{ content: string }>(`/api/tasks/${id}/cached-preview`);
+      setPreviewContent(result.content);
+      setPreviewState({ taskID: id });
+      return result.content;
+    } catch {
+      return "";
     }
   }
 
@@ -195,6 +214,7 @@ function App() {
         body: JSON.stringify({
           custom_rules_text: String(form.get("custom_rules_text") || ""),
           vless_relay_enabled: form.get("vless_relay_enabled") === "on",
+          subscription_info_keywords_text: String(form.get("subscription_info_keywords_text") || ""),
         }),
       });
       setRuleConfig(next);
@@ -247,12 +267,17 @@ function App() {
   async function generateTask(id: number) {
     setBusyTaskID(id);
     try {
-      const result = await api<{ content: string }>(`/api/tasks/${id}/generate`, { method: "POST" });
+      const result = await api<TaskOutputResponse>(`/api/tasks/${id}/generate`, { method: "POST" });
       setPreviewContent(result.content);
       setPreviewState({ taskID: id });
       setTab("preview");
       await refresh();
-      notify(t.taskList.generated);
+      if (result.error) {
+        setValidationError(result.error);
+        notify(t.taskList.generatedWithWarnings);
+      } else {
+        notify(t.taskList.generated);
+      }
     } catch {
       await refresh();
       notify(t.taskList.generateFailed);
@@ -264,12 +289,17 @@ function App() {
   async function loadPreview(id: number) {
     setBusyTaskID(id);
     try {
-      const result = await api<{ content: string }>(`/api/tasks/${id}/preview`);
+      const result = await api<TaskOutputResponse>(`/api/tasks/${id}/preview`);
       setPreviewContent(result.content);
       setPreviewState({ taskID: id });
       setTab("preview");
       await refresh();
-      notify(t.preview.loaded);
+      if (result.error) {
+        setValidationError(result.error);
+        notify(t.preview.loadedWithWarnings);
+      } else {
+        notify(t.preview.loaded);
+      }
     } catch {
       notify(t.preview.loadFailed);
     } finally {
@@ -281,8 +311,9 @@ function App() {
     const taskID = previewRefreshTaskID(id, previewState);
     if (!taskID) return;
     try {
-      const result = await api<{ content: string }>(`/api/tasks/${taskID}/preview`, { method: "POST", body: JSON.stringify(input) });
+      const result = await api<TaskOutputResponse>(`/api/tasks/${taskID}/preview`, { method: "POST", body: JSON.stringify(input) });
       setPreviewContent(result.content);
+      if (result.error) setValidationError(result.error);
     } catch {
       notify(t.preview.loadFailed);
     }
@@ -335,7 +366,7 @@ function App() {
           ))}
         </nav>
       </aside>
-      <section className="workspace">
+        <section className="workspace">
         <header className="topbar">
           <div>
             <h2>{t.tabs[tab as keyof typeof t.tabs]}</h2>
@@ -346,7 +377,8 @@ function App() {
             <button onClick={() => refresh(true)}><RefreshCw size={16} /> {t.refresh}</button>
           </div>
         </header>
-        {toast && <div className="toast">{toast}</div>}
+          {toast && <div className="toast">{toast}</div>}
+          {validationError && <ValidationErrorDialog message={validationError} title={t.validationError.title} onClose={() => setValidationError("")} closeLabel={t.forms.cancel} />}
 
         {tab === "overview" && (
           <section className="stack">
@@ -356,7 +388,7 @@ function App() {
               <Metric icon={<Layers />} value={tasks.filter((task) => task.IncludeGlobalRules).length} label={t.metrics.globalRules} />
               <Metric icon={<AlertCircle />} value={errors.length} label={t.metrics.errors} />
             </div>
-            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} previewContent={previewContent} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} onPreviewDraft={previewDraft} />
+            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} previewContent={previewContent} subscriptionInfoKeywordsText={ruleConfig.SubscriptionInfoKeywordsText} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} onPreviewDraft={previewDraft} onLoadCachedPreview={loadCachedPreview} />
           </section>
         )}
 
@@ -369,7 +401,7 @@ function App() {
               <button><Plus size={16} /> {t.forms.create}</button>
             </form>
             {error && <p className="error">{error}</p>}
-            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} previewContent={previewContent} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} onPreviewDraft={previewDraft} />
+            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} previewContent={previewContent} subscriptionInfoKeywordsText={ruleConfig.SubscriptionInfoKeywordsText} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} onPreviewDraft={previewDraft} onLoadCachedPreview={loadCachedPreview} />
           </section>
         )}
 
@@ -390,6 +422,7 @@ function App() {
               <h3>{t.settings.globalRuleTitle}</h3>
               <label className="check-label"><input name="vless_relay_enabled" type="checkbox" defaultChecked={ruleConfig.VLESSRelayEnabled} /> {t.settings.vlessRelayToggle}</label>
               <label className="wide-field">{t.forms.customRules}<textarea name="custom_rules_text" rows={8} defaultValue={ruleConfig.CustomRulesText} placeholder={t.placeholders.customRules} /></label>
+              <label className="wide-field">{t.forms.subscriptionInfoKeywords}<textarea name="subscription_info_keywords_text" rows={5} defaultValue={ruleConfig.SubscriptionInfoKeywordsText} placeholder={defaultSubscriptionInfoKeywordsText} /></label>
               <button><Save size={15} /> {t.forms.save}</button>
             </form>
             <form className="panel settings-form managed-defaults-form" onSubmit={updateManagedConfigDefaults}>
@@ -448,6 +481,27 @@ function LanguageSwitch({ language, onChange }: { language: Language; onChange: 
   );
 }
 
+function ValidationErrorDialog({ title, message, closeLabel, onClose }: { title: string; message: string; closeLabel: string; onClose: () => void }) {
+  return (
+    <div className="validation-error-overlay" role="dialog" aria-modal="true" aria-label={title}>
+      <section className="validation-error-dialog">
+        <header>
+          <h3>{title}</h3>
+          <button type="button" className="secondary-button icon-button" onClick={onClose} aria-label={closeLabel}><X size={15} /></button>
+        </header>
+        <pre>{formatValidationMessage(message)}</pre>
+        <footer>
+          <button type="button" onClick={onClose}>{closeLabel}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function formatValidationMessage(message: string) {
+  return message.replaceAll("。", "。\n").trim();
+}
+
 function Metric({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) {
   return (
     <div className="metric">
@@ -463,6 +517,7 @@ function TaskList({
   t,
   managedConfigDefaults,
   previewContent,
+  subscriptionInfoKeywordsText,
   busyTaskID,
   onCopy,
   onUpdate,
@@ -470,11 +525,13 @@ function TaskList({
   onGenerate,
   onPreview,
   onPreviewDraft,
+  onLoadCachedPreview,
 }: {
   tasks: Task[];
   t: typeof translations[Language];
   managedConfigDefaults: ManagedConfigDefaults;
   previewContent: string;
+  subscriptionInfoKeywordsText: string;
   busyTaskID: number | null;
   onCopy: (message: string) => void;
   onUpdate: (id: number, input: TaskUpdateInput) => Promise<void>;
@@ -482,13 +539,14 @@ function TaskList({
   onGenerate: (id: number) => Promise<void>;
   onPreview: (id: number) => Promise<void>;
   onPreviewDraft: (id: number, input: TaskUpdateInput) => Promise<void>;
+  onLoadCachedPreview: (id: number) => Promise<string>;
 }) {
   return (
     <section className="panel">
       <h3>{t.taskList.title}</h3>
       <div className="list">
         {tasks.length ? tasks.map((task) => (
-          <TaskRow key={task.ID} task={task} t={t} managedConfigDefaults={managedConfigDefaults} previewContent={previewContent} busy={busyTaskID === task.ID} onCopy={onCopy} onUpdate={onUpdate} onDelete={onDelete} onGenerate={onGenerate} onPreview={onPreview} onPreviewDraft={onPreviewDraft} />
+          <TaskRow key={task.ID} task={task} t={t} managedConfigDefaults={managedConfigDefaults} previewContent={previewContent} subscriptionInfoKeywordsText={subscriptionInfoKeywordsText} busy={busyTaskID === task.ID} onCopy={onCopy} onUpdate={onUpdate} onDelete={onDelete} onGenerate={onGenerate} onPreview={onPreview} onPreviewDraft={onPreviewDraft} onLoadCachedPreview={onLoadCachedPreview} />
         )) : <p className="muted">{t.taskList.empty}</p>}
       </div>
     </section>
@@ -500,6 +558,7 @@ function TaskRow({
   t,
   managedConfigDefaults,
   previewContent,
+  subscriptionInfoKeywordsText,
   busy,
   onCopy,
   onUpdate,
@@ -507,11 +566,13 @@ function TaskRow({
   onGenerate,
   onPreview,
   onPreviewDraft,
+  onLoadCachedPreview,
 }: {
   task: Task;
   t: typeof translations[Language];
   managedConfigDefaults: ManagedConfigDefaults;
   previewContent: string;
+  subscriptionInfoKeywordsText: string;
   busy: boolean;
   onCopy: (message: string) => void;
   onUpdate: (id: number, input: TaskUpdateInput) => Promise<void>;
@@ -519,6 +580,7 @@ function TaskRow({
   onGenerate: (id: number) => Promise<void>;
   onPreview: (id: number) => Promise<void>;
   onPreviewDraft: (id: number, input: TaskUpdateInput) => Promise<void>;
+  onLoadCachedPreview: (id: number) => Promise<string>;
 }) {
   const [editing, setEditing] = React.useState(false);
   const [section, setSection] = React.useState<TaskEditorSection>("basic");
@@ -545,6 +607,12 @@ function TaskRow({
     }
   }, [editing, task]);
 
+  React.useEffect(() => {
+    if (editing) {
+      void loadCachedPreview(task.ID);
+    }
+  }, [editing, task.ID]);
+
   async function copyURL() {
     await navigator.clipboard.writeText(absoluteSubscriptionURL(task.SubscriptionURL));
     onCopy(t.copied);
@@ -562,6 +630,11 @@ function TaskRow({
       void onPreviewDraft(task.ID, next);
       return next;
     });
+  }
+
+  async function loadCachedPreview(id: number) {
+    if (previewContent) return previewContent;
+    return onLoadCachedPreview(id);
   }
 
   function updateManagedPreviewValue<Key extends keyof ManagedPreviewValues>(key: Key, value: ManagedPreviewValues[Key]) {
@@ -683,7 +756,7 @@ function TaskRow({
                   <textarea name="custom_rules_text" rows={7} value={draft.custom_rules_text || ""} onChange={(event) => updateDraft("custom_rules_text", event.currentTarget.value)} placeholder={t.placeholders.customRules} />
                 </EditorSubsection>
                 <EditorSubsection title={t.forms.customGroups} description={t.taskEditor.descriptions.customGroups}>
-                  <PolicyGroupEditor value={draft.custom_groups_text || ""} previewContent={previewContent} t={t} onChange={(value) => updateDraft("custom_groups_text", value)} />
+                  <PolicyGroupEditor value={draft.custom_groups_text || ""} previewContent={previewContent} subscriptionInfoKeywordsText={subscriptionInfoKeywordsText} t={t} onNeedPreview={() => loadCachedPreview(task.ID)} onChange={(value) => updateDraft("custom_groups_text", value)} />
                 </EditorSubsection>
               </div>
             </div>
@@ -779,9 +852,23 @@ function SummaryList({ items }: { items: Array<[string, string]> }) {
   );
 }
 
-function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: string; previewContent: string; t: typeof translations[Language]; onChange: (value: string) => void }) {
+function PolicyGroupEditor({
+  value,
+  previewContent,
+  subscriptionInfoKeywordsText,
+  t,
+  onNeedPreview,
+  onChange,
+}: {
+  value: string;
+  previewContent: string;
+  subscriptionInfoKeywordsText: string;
+  t: typeof translations[Language];
+  onNeedPreview: () => Promise<string>;
+  onChange: (value: string) => void;
+}) {
   const parsedGroups = React.useMemo(() => parsePolicyGroupsText(value), [value]);
-  const nodeCandidates = React.useMemo(() => parseProxyNodeCandidates(previewContent), [previewContent]);
+  const nodeCandidates = React.useMemo(() => parseProxyNodeCandidates(previewContent, subscriptionInfoKeywordsText), [previewContent, subscriptionInfoKeywordsText]);
   const importGroups = React.useMemo(() => parseProxyGroupCandidates(previewContent), [previewContent]);
   const [advancedMode, setAdvancedMode] = React.useState(() => Boolean(value.trim() && parsedGroups.length === 0));
   const [groups, setGroups] = React.useState<PolicyGroup[]>(() => parsedGroups);
@@ -901,7 +988,10 @@ function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: stri
                 <label className="editor-switch"><input type="checkbox" checked={group.includeAllProxies} onChange={(event) => updateGroup(group.id, { includeAllProxies: event.currentTarget.checked })} /> {t.policyGroups.includeAllProxies}</label>
               )}
               <label>{t.policyGroups.members}<textarea rows={5} value={memberDrafts[group.id] ?? group.members.join("\n")} onChange={(event) => handleMemberDraftChange(group, event.currentTarget.value)} placeholder={t.policyGroups.membersPlaceholder} /></label>
-              <button type="button" className="secondary-button" onClick={() => setSelectorGroupID(group.id)}>{t.policyGroups.selectMembers}</button>
+              <button type="button" className="secondary-button" onClick={() => {
+                if (!previewContent) void onNeedPreview();
+                setSelectorGroupID(group.id);
+              }}>{t.policyGroups.selectMembers}</button>
               <pre className="inline-preview policy-line-preview">{policyGroupLine(group) || t.policyGroups.emptyPreview}</pre>
             </section>
           ))}
@@ -953,6 +1043,7 @@ function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: stri
             updateGroup(selectorGroup.id, { members });
             setSelectorGroupID("");
           }}
+          onRemoveSubscriptionInfoMembers={(members) => updateGroup(selectorGroup.id, { members })}
         />
       )}
     </div>
@@ -966,6 +1057,7 @@ function PolicyMemberSelector({
   onClose,
   onAppend,
   onReplace,
+  onRemoveSubscriptionInfoMembers,
 }: {
   group: PolicyGroup;
   candidates: ProxyNodeCandidate[];
@@ -973,11 +1065,23 @@ function PolicyMemberSelector({
   onClose: () => void;
   onAppend: (members: string[]) => void;
   onReplace: (members: string[]) => void;
+  onRemoveSubscriptionInfoMembers: (members: string[]) => void;
 }) {
   const [query, setQuery] = React.useState("");
+  const [keywordFilter, setKeywordFilter] = React.useState("");
+  const [memberCategoryFilter, setMemberCategoryFilter] = React.useState<"all" | ProxyNodeCategory | "selected" | "unselected">("all");
   const [selected, setSelected] = React.useState<string[]>([]);
   const normalizedQuery = query.trim().toLowerCase();
-  const visibleCandidates = candidates.filter((candidate) => candidate.name.toLowerCase().includes(normalizedQuery));
+  const keywordFilters = keywordFilter.toLowerCase().split(/\s+/).map((keyword) => keyword.trim()).filter(Boolean);
+  const visibleCandidates = candidates
+    .filter((candidate) => candidate.name.toLowerCase().includes(normalizedQuery))
+    .filter((candidate) => keywordFilters.every((keyword) => candidate.name.toLowerCase().includes(keyword)))
+    .filter((candidate) => {
+      if (memberCategoryFilter === "regular" || memberCategoryFilter === "subscription_info") return candidate.category === memberCategoryFilter;
+      if (memberCategoryFilter === "selected") return selected.includes(candidate.name);
+      if (memberCategoryFilter === "unselected") return !selected.includes(candidate.name);
+      return true;
+    });
   const regularNodes = visibleCandidates.filter((candidate) => candidate.category === "regular");
   const infoNodes = visibleCandidates.filter((candidate) => candidate.category === "subscription_info");
 
@@ -987,6 +1091,15 @@ function PolicyMemberSelector({
 
   function selectRegularNodes() {
     setSelected((current) => mergeMembers(current, regularNodes.map((node) => node.name)));
+  }
+
+  function selectVisibleNodes() {
+    setSelected((current) => mergeMembers(current, visibleCandidates.map((node) => node.name)));
+  }
+
+  function removeSubscriptionInfoMembers() {
+    const infoNames = new Set(candidates.filter((candidate) => candidate.category === "subscription_info").map((candidate) => candidate.name));
+    onRemoveSubscriptionInfoMembers(group.members.filter((member) => !infoNames.has(member)));
   }
 
   return (
@@ -1001,7 +1114,19 @@ function PolicyMemberSelector({
         </header>
         <div className="policy-member-tools">
           <label>{t.policyGroups.searchMembers}<input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t.policyGroups.searchMembersPlaceholder} /></label>
+          <label>{t.policyGroups.keywordFilter}<input value={keywordFilter} onChange={(event) => setKeywordFilter(event.currentTarget.value)} placeholder={t.policyGroups.keywordFilterPlaceholder} /></label>
+          <label>{t.policyGroups.memberFilter}<select value={memberCategoryFilter} onChange={(event) => setMemberCategoryFilter(event.currentTarget.value as typeof memberCategoryFilter)}>
+            <option value="all">{t.policyGroups.filterAll}</option>
+            <option value="regular">{t.policyGroups.regularNodes}</option>
+            <option value="subscription_info">{t.policyGroups.subscriptionInfoNodes}</option>
+            <option value="selected">{t.policyGroups.filterSelected}</option>
+            <option value="unselected">{t.policyGroups.filterUnselected}</option>
+          </select></label>
+        </div>
+        <div className="policy-member-actions">
+          <button type="button" className="secondary-button" disabled={!visibleCandidates.length} onClick={selectVisibleNodes}>{t.policyGroups.selectVisibleNodes}</button>
           <button type="button" className="secondary-button" disabled={!regularNodes.length} onClick={selectRegularNodes}>{t.policyGroups.selectRegularNodes}</button>
+          <button type="button" className="secondary-button" disabled={!candidates.some((candidate) => candidate.category === "subscription_info")} onClick={removeSubscriptionInfoMembers}>{t.policyGroups.removeSubscriptionInfoMembers}</button>
         </div>
         {!candidates.length && <p className="policy-empty">{t.policyGroups.noPreviewNodes}</p>}
         {candidates.length > 0 && (
