@@ -179,26 +179,7 @@ func renderSurge6(nodes []Node, groups []Group, rules []string, cfg SurgeConfig,
 }
 
 func nodeCompatibilityWarnings(nodes []Node) []string {
-	warnings := make([]string, 0)
-	for _, node := range nodes {
-		if strings.TrimSpace(node.Params["surge_raw"]) != "" {
-			continue
-		}
-		if node.Protocol != "anytls" {
-			continue
-		}
-		messages := make([]string, 0, 2)
-		if clientFingerprint := node.Params["client_fingerprint"]; clientFingerprint != "" {
-			messages = append(messages, "AnyTLS 的 client-fingerprint="+clientFingerprint+" 当前 Surge 配置语法不支持")
-		}
-		if node.Params["udp"] == "true" {
-			messages = append(messages, "AnyTLS 的 udp=true 当前 Surge UDP relay 不支持")
-		}
-		if len(messages) > 0 {
-			warnings = append(warnings, "节点可能无法等价转换："+node.Name+"\n"+strings.Join(messages, "\n"))
-		}
-	}
-	return warnings
+	return nil
 }
 
 func builtinPolicyNames() map[string]struct{} {
@@ -498,6 +479,12 @@ func renderNodeWithOptions(node Node, opts RenderOptions) (string, error) {
 func appendSharedSurgeParams(parts *[]string, node Node) {
 	if node.Params["skip_cert_verify"] == "true" {
 		*parts = append(*parts, "skip-cert-verify=true")
+	}
+	if clientFingerprint := node.Params["client_fingerprint"]; clientFingerprint != "" {
+		*parts = append(*parts, "client-fingerprint="+clientFingerprint)
+	}
+	if node.Params["udp"] == "true" {
+		*parts = append(*parts, "udp-relay=true")
 	}
 	if node.Params["network"] == "ws" {
 		*parts = append(*parts, "ws=true")

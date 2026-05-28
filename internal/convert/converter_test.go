@@ -215,6 +215,8 @@ rules:
 		"password=9a389c5c-e2b7-3516-8871-22ee7c4e1b7d",
 		"sni=www.baidu.com",
 		"skip-cert-verify=true",
+		"client-fingerprint=firefox",
+		"udp-relay=true",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
@@ -225,7 +227,7 @@ rules:
 	}
 }
 
-func TestRenderSurge6WithWarningsReportsUnsupportedAnyTLSOptions(t *testing.T) {
+func TestRenderSurge6WithWarningsDoesNotWarnForSupportedAnyTLSOptions(t *testing.T) {
 	result, err := RenderSurge6WithWarnings(
 		[]Node{{
 			Name:     "香港 03 AnyTLS",
@@ -248,21 +250,15 @@ func TestRenderSurge6WithWarningsReportsUnsupportedAnyTLSOptions(t *testing.T) {
 		t.Fatalf("RenderSurge6WithWarnings returned render error: %v", err)
 	}
 	for _, want := range []string{
-		"香港 03 AnyTLS = anytls, at03-hlzp2o.fork2026.com, 18611, password=secret, sni=www.baidu.com, skip-cert-verify=true",
+		"香港 03 AnyTLS = anytls, at03-hlzp2o.fork2026.com, 18611, password=secret, sni=www.baidu.com, skip-cert-verify=true, client-fingerprint=firefox, udp-relay=true",
 		"FINAL,Proxy",
 	} {
 		if !strings.Contains(result.Output, want) {
 			t.Fatalf("output missing %q:\n%s", want, result.Output)
 		}
 	}
-	for _, want := range []string{
-		"节点可能无法等价转换：香港 03 AnyTLS",
-		"AnyTLS 的 client-fingerprint=firefox 当前 Surge 配置语法不支持",
-		"AnyTLS 的 udp=true 当前 Surge UDP relay 不支持",
-	} {
-		if !strings.Contains(result.Warning, want) {
-			t.Fatalf("warning missing %q:\n%s", want, result.Warning)
-		}
+	if result.Warning != "" {
+		t.Fatalf("supported AnyTLS options should not warn: %s", result.Warning)
 	}
 }
 
