@@ -1338,7 +1338,7 @@ function NodeList({ nodes, t, onDelete }: { nodes: PinnedNode[]; t: typeof trans
               <span>{`${node.Server}:${node.Port}`}</span>
             </div>
             <span className="badge">{node.Protocol}</span>
-            <span>{node.DefaultInclude ? t.nodeList.default : t.nodeList.manual}</span>
+            <span>{t.nodeList.manual}</span>
             <span>{node.Enabled ? t.nodeList.enabled : t.nodeList.disabled}</span>
             <button type="button" className="danger-button" onClick={() => onDelete(node.ID)}><Trash2 size={15} /> {t.nodeList.delete}</button>
           </div>

@@ -40,6 +40,41 @@ func TestGenerateMergesPinnedNodes(t *testing.T) {
 	}
 }
 
+func TestGenerateMergesEnabledPinnedNodesWithoutDefaultInclude(t *testing.T) {
+	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\nrules:\n  - FINAL,Proxy\n"
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedTaskUser(t, db)
+	seedTask(t, db, userID, "https://upstream.example.test/clash.yaml", 1)
+	_, err = db.SQL().Exec(`
+		INSERT INTO pinned_nodes (
+			user_id, name, protocol, server, port, parameters_json, tags_json,
+			enabled, default_include, sort_order
+		) VALUES (?, 'Pinned', 'trojan', 'pinned.example', 443, '{"password":"secret"}', '[]', 1, 0, 0)`, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	output, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if !strings.Contains(output, "Pinned = trojan") {
+		t.Fatalf("enabled pinned node should merge even when default_include is false:\n%s", output)
+	}
+}
+
 func TestGenerateSupportsBase64URIListSubscriptions(t *testing.T) {
 	uriList := strings.Join([]string{
 		"ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@remote.example:8388#Remote",

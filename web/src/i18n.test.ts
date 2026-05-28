@@ -37,10 +37,13 @@ describe("i18n", () => {
     assert.equal(translations.zh.taskEditor.subsections.nodes, "节点配置");
     assert.equal(translations.zh.taskEditor.subsections.rules, "规则配置");
     assert.equal(translations.zh.taskEditor.subsections.vless, "VLESS 配置");
+    assert.equal(translations.zh.forms.mergeDefaults, "合并固定节点");
+    assert.equal(translations.zh.taskEditor.descriptions.mergeDefaults, "启用后，所有已启用的固定节点会合并到当前任务输出中。");
     assert.equal(translations.zh.forms.finalRulePolicy, "FINAL 策略");
     assert.equal(translations.zh.taskEditor.autoFinalPolicy, "自动");
     assert.equal(translations.en.taskEditor.sections.custom, "Custom Rules");
     assert.equal(translations.en.taskEditor.subsections.rules, "Rule Configuration");
+    assert.equal(translations.en.forms.mergeDefaults, "Merge pinned nodes");
     assert.equal(translations.en.forms.finalRulePolicy, "FINAL policy");
   });
 });

@@ -132,7 +132,7 @@ func (s *Service) EffectiveDefaultNodes(userID int64) ([]convert.Node, error) {
 	rows, err := s.db.SQL().Query(`
 		SELECT name, protocol, server, port, parameters_json, tags_json
 		FROM pinned_nodes
-		WHERE user_id = ? AND enabled = 1 AND default_include = 1
+		WHERE user_id = ? AND enabled = 1
 		ORDER BY sort_order ASC, id ASC`, userID)
 	if err != nil {
 		return nil, err
