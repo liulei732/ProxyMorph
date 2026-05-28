@@ -109,6 +109,17 @@ describe("task editor live summary binding", () => {
     assert.match(source, /toggleVisibleNodes/);
   });
 
+  it("keeps the current tab after generating while manual preview still opens preview", () => {
+    const generateStart = source.indexOf("async function generateTask");
+    const loadPreviewStart = source.indexOf("async function loadPreview");
+    const generateBlock = source.slice(generateStart, loadPreviewStart);
+    const loadPreviewBlock = source.slice(loadPreviewStart, source.indexOf("async function previewDraft"));
+    assert.doesNotMatch(generateBlock, /setTab\("preview"\)/);
+    assert.match(generateBlock, /setPreviewContent\(result\.content\)/);
+    assert.match(generateBlock, /setPreviewState\(\{ taskID: id \}\)/);
+    assert.match(loadPreviewBlock, /setTab\("preview"\)/);
+  });
+
   it("uses the redesigned pinned node management layout", () => {
     assert.match(source, /NodeManagement/);
     assert.match(source, /node-management/);

@@ -330,7 +330,6 @@ function App() {
       const result = await api<TaskOutputResponse>(`/api/tasks/${id}/generate`, { method: "POST" });
       setPreviewContent(result.content);
       setPreviewState({ taskID: id });
-      setTab("preview");
       await refresh();
       if (result.error) {
         setValidationError(result.error);
