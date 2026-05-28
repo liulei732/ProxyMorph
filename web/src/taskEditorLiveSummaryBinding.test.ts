@@ -97,7 +97,22 @@ describe("task editor live summary binding", () => {
   it("supports deleting pinned nodes from the node list", () => {
     assert.match(source, /async function deleteNode\(id: number\)/);
     assert.match(source, /api\(`\/api\/nodes\/\$\{id\}`,\s*\{ method: "DELETE" \}\)/);
-    assert.match(source, /<NodeList nodes=\{nodes\} t=\{t\} onDelete=\{deleteNode\} \/>/);
+    assert.match(source, /<NodeManagement nodes=\{nodes\}[\s\S]*onDelete=\{deleteNode\}/);
     assert.match(source, /onClick=\{\(\) => onDelete\(node\.ID\)\}/);
+  });
+
+  it("uses the redesigned pinned node management layout", () => {
+    assert.match(source, /NodeManagement/);
+    assert.match(source, /node-management/);
+    assert.match(source, /node-import-preview/);
+    assert.match(source, /node-library-tools/);
+    assert.match(source, /node-table/);
+    assert.match(source, /filteredNodes/);
+    assert.match(source, /copyNodeName/);
+    assert.match(source, /nodes\.filter\(\(node\) => node\.Enabled\)\.length/);
+    assert.match(styles, /\.node-management \{/);
+    assert.match(styles, /\.node-table \{/);
+    assert.match(styles, /\.node-action-button/);
+    assert.doesNotMatch(source, /className="row" key=\{node\.ID\}[\s\S]*danger-button/);
   });
 });

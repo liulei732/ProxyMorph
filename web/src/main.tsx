@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { AlertCircle, Copy, Eye, KeyRound, Layers, Pencil, Play, Plus, RefreshCw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
+import { AlertCircle, Copy, Eye, KeyRound, Layers, Pencil, Play, Plus, RefreshCw, Save, Search, Server, ShieldCheck, Trash2, X } from "lucide-react";
 import { api } from "./api";
 import { getInitialLanguage, languageStorageKey, languages, translations, type Language } from "./i18n";
 import { absoluteSubscriptionURL as buildAbsoluteSubscriptionURL, enabledManagedHeaderPreviewFromValues, managedHeaderPreviewFromValues, type GlobalManagedURLMode, type ManagedConfigDefaults, type ManagedIntervalMode, type ManagedPreviewValues, type ManagedURLMode, type RuleMergeMode, type TriStateMode, type VLESSRelayMode } from "./managedPreview";
@@ -442,13 +442,7 @@ function App() {
         )}
 
         {tab === "nodes" && (
-          <section className="stack">
-            <form className="panel" onSubmit={importNodes}>
-              <label>{t.forms.proxyURIs}<textarea name="text" rows={6} placeholder={t.placeholders.proxyURIs} /></label>
-              <button><Plus size={16} /> {t.forms.importNodes}</button>
-            </form>
-            <NodeList nodes={nodes} t={t} onDelete={deleteNode} />
-          </section>
+          <NodeManagement nodes={nodes} t={t} placeholder={t.placeholders.proxyURIs} onImport={importNodes} onDelete={deleteNode} onCopy={notify} importToast={toast} />
         )}
 
         {tab === "preview" && <section className="panel"><h3>{t.preview.title}</h3><pre>{previewContent || t.preview.empty}</pre></section>}
@@ -1326,26 +1320,128 @@ function formatTime(value: string) {
   return date.toLocaleString();
 }
 
-function NodeList({ nodes, t, onDelete }: { nodes: PinnedNode[]; t: typeof translations[Language]; onDelete: (id: number) => void }) {
+type NodeFilter = "all" | "enabled" | "disabled";
+
+function NodeManagement({ nodes, t, placeholder, onImport, onDelete, onCopy, importToast }: { nodes: PinnedNode[]; t: typeof translations[Language]; placeholder: string; onImport: (event: React.FormEvent<HTMLFormElement>) => void; onDelete: (id: number) => void; onCopy: (message: string) => void; importToast: string }) {
+  const [draftText, setDraftText] = React.useState("");
+  const [query, setQuery] = React.useState("");
+  const [filter, setFilter] = React.useState<NodeFilter>("all");
+  React.useEffect(() => {
+    if (importToast === t.nodeList.imported) setDraftText("");
+  }, [importToast, t.nodeList.imported]);
+  const importPreview = React.useMemo(() => previewNodeImportLines(draftText), [draftText]);
+  const protocolCount = new Set(nodes.map((node) => node.Protocol)).size;
+  const filteredNodes = nodes.filter((node) => {
+    const matchesQuery = !query.trim() || [node.Name, node.Protocol, node.Server, String(node.Port)].some((value) => value.toLowerCase().includes(query.trim().toLowerCase()));
+    const matchesFilter = filter === "all" || (filter === "enabled" ? node.Enabled : !node.Enabled);
+    return matchesQuery && matchesFilter;
+  });
+
+  async function copyNodeName(name: string) {
+    await navigator.clipboard.writeText(name);
+    onCopy(t.nodeList.copiedName);
+  }
+
   return (
-    <section className="panel">
-      <h3>{t.nodeList.title}</h3>
-      <div className="list">
+    <section className="node-management">
+      <div className="node-metrics">
+        <Metric icon={<ShieldCheck />} value={nodes.length} label={t.nodeList.total} />
+        <Metric icon={<Server />} value={nodes.filter((node) => node.Enabled).length} label={t.nodeList.mergeable} />
+        <Metric icon={<Layers />} value={protocolCount} label={t.nodeList.protocols} />
+      </div>
+      <form className="panel node-import-panel" onSubmit={onImport}>
+        <div>
+          <h3>{t.nodeList.importTitle}</h3>
+          <p className="muted">{t.nodeList.importHint}</p>
+        </div>
+        <label>{t.forms.proxyURIs}<textarea name="text" rows={7} value={draftText} onChange={(event) => setDraftText(event.currentTarget.value)} placeholder={placeholder} /></label>
+        {importPreview.length > 0 && (
+          <div className="node-import-preview">
+            <strong>{t.nodeList.importPreview}</strong>
+            {importPreview.map((item, index) => (
+              <div className="node-import-preview-row" key={`${item.name}-${index}`}>
+                <span className={item.detected ? "node-preview-mark" : "node-preview-mark review"}>{item.detected ? "OK" : "!"}</span>
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>{item.detail}</span>
+                </div>
+                <span className="badge">{item.detected ? t.nodeList.detected : t.nodeList.needsReview}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <button><Plus size={16} /> {t.forms.importNodes}</button>
+      </form>
+      <NodeList nodes={filteredNodes} totalNodes={nodes.length} t={t} query={query} filter={filter} onQueryChange={setQuery} onFilterChange={setFilter} onCopyName={copyNodeName} onDelete={onDelete} />
+    </section>
+  );
+}
+
+function NodeList({ nodes, totalNodes, t, query, filter, onQueryChange, onFilterChange, onCopyName, onDelete }: { nodes: PinnedNode[]; totalNodes: number; t: typeof translations[Language]; query: string; filter: NodeFilter; onQueryChange: (value: string) => void; onFilterChange: (value: NodeFilter) => void; onCopyName: (name: string) => void; onDelete: (id: number) => void }) {
+  return (
+    <section className="panel node-library">
+      <div className="node-library-header">
+        <div>
+          <h3>{t.nodeList.title}</h3>
+          <p className="muted">{t.nodeList.libraryHint}</p>
+        </div>
+        <span className="badge">{nodes.length}/{totalNodes}</span>
+      </div>
+      <div className="node-library-tools">
+        <label className="node-search"><Search size={15} /><input value={query} onChange={(event) => onQueryChange(event.currentTarget.value)} placeholder={t.nodeList.search} /></label>
+        <div className="node-filter-tabs">
+          {(["all", "enabled", "disabled"] as NodeFilter[]).map((item) => (
+            <button key={item} type="button" className={filter === item ? "active" : ""} onClick={() => onFilterChange(item)}>{nodeFilterLabel(item, t)}</button>
+          ))}
+        </div>
+      </div>
+      <div className="node-table">
+        <div className="node-table-head">
+          <span>{t.nodeList.title}</span>
+          <span>{t.nodeList.protocols}</span>
+          <span>{t.nodeList.enabled}</span>
+          <span>{t.nodeList.manual}</span>
+          <span>{t.forms.save}</span>
+        </div>
         {nodes.length ? nodes.map((node) => (
-          <div className="row" key={node.ID}>
-            <div>
-              <strong>{node.Name}</strong>
-              <span>{`${node.Server}:${node.Port}`}</span>
+          <div className="node-table-row" key={node.ID}>
+            <div className="node-name-cell">
+              <strong><span className={node.Enabled ? "node-dot" : "node-dot disabled"} />{node.Name}</strong>
+              <span>{node.Server}:{node.Port}</span>
             </div>
             <span className="badge">{node.Protocol}</span>
+            <span className={node.Enabled ? "status-success" : ""}>{node.Enabled ? t.nodeList.enabled : t.nodeList.disabled}</span>
             <span>{t.nodeList.manual}</span>
-            <span>{node.Enabled ? t.nodeList.enabled : t.nodeList.disabled}</span>
-            <button type="button" className="danger-button" onClick={() => onDelete(node.ID)}><Trash2 size={15} /> {t.nodeList.delete}</button>
+            <div className="node-row-actions">
+              <button type="button" className="node-action-button" title={t.nodeList.copyName} onClick={() => onCopyName(node.Name)}><Copy size={15} /></button>
+              <button type="button" className="node-action-button danger" title={t.nodeList.delete} onClick={() => onDelete(node.ID)}><Trash2 size={15} /></button>
+            </div>
           </div>
         )) : <p className="muted">{t.nodeList.empty}</p>}
       </div>
     </section>
   );
+}
+
+function nodeFilterLabel(filter: NodeFilter, t: typeof translations[Language]) {
+  if (filter === "enabled") return t.nodeList.enabledOnly;
+  if (filter === "disabled") return t.nodeList.disabledOnly;
+  return t.nodeList.all;
+}
+
+function previewNodeImportLines(text: string) {
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 4).map((line) => {
+    const surgeMatch = line.match(/^(.+?)\s*=\s*([a-z0-9-]+)\s*,\s*([^,\s]+)\s*,\s*(\d+)/i);
+    const uriMatch = line.match(/^([a-z0-9+.-]+):\/\//i);
+    if (surgeMatch) {
+      return { detected: true, name: surgeMatch[1].replace(/^"|"$/g, ""), detail: `${surgeMatch[2]} / ${surgeMatch[3]}:${surgeMatch[4]}` };
+    }
+    if (uriMatch) {
+      const hashName = decodeURIComponent(line.split("#")[1] || uriMatch[1]);
+      return { detected: true, name: hashName, detail: uriMatch[1] };
+    }
+    return { detected: false, name: line.slice(0, 40), detail: "可能不是代理节点" };
+  });
 }
 
 function absoluteSubscriptionURL(url: string) {
