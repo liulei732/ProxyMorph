@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/liulei/proxymorph/internal/convert"
 	"github.com/liulei/proxymorph/internal/storage"
@@ -10,6 +11,8 @@ import (
 type Service struct {
 	db *storage.DB
 }
+
+var ErrNodeNotFound = errors.New("node not found")
 
 type CreateInput struct {
 	Name           string            `json:"name"`
@@ -108,6 +111,21 @@ func (s *Service) List(userID int64) ([]storage.PinnedNode, error) {
 		result = append(result, node)
 	}
 	return result, rows.Err()
+}
+
+func (s *Service) Delete(userID, id int64) error {
+	res, err := s.db.SQL().Exec(`DELETE FROM pinned_nodes WHERE user_id = ? AND id = ?`, userID, id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNodeNotFound
+	}
+	return nil
 }
 
 func (s *Service) EffectiveDefaultNodes(userID int64) ([]convert.Node, error) {

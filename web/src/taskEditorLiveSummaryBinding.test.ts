@@ -87,4 +87,17 @@ describe("task editor live summary binding", () => {
     assert.match(source, /formatValidationMessage/);
     assert.match(styles, /\.validation-error-dialog pre \{[^}]*white-space:\s*pre-wrap/);
   });
+
+  it("does not report create or import success as failure when refresh steps fail", () => {
+    assert.match(source, /notify\(t\.taskList\.created\)[\s\S]*try \{\s*await refresh\(\);[\s\S]*notify\(t\.refreshFailed\)/);
+    assert.match(source, /notify\(t\.nodeList\.imported\)[\s\S]*try \{\s*await refresh\(\);[\s\S]*notify\(t\.refreshFailed\)/);
+    assert.doesNotMatch(source, /await api\("\/api\/nodes\/import"[\s\S]*await refresh\(\)[\s\S]*notify\(t\.createFailed\)/);
+  });
+
+  it("supports deleting pinned nodes from the node list", () => {
+    assert.match(source, /async function deleteNode\(id: number\)/);
+    assert.match(source, /api\(`\/api\/nodes\/\$\{id\}`,\s*\{ method: "DELETE" \}\)/);
+    assert.match(source, /<NodeList nodes=\{nodes\} t=\{t\} onDelete=\{deleteNode\} \/>/);
+    assert.match(source, /onClick=\{\(\) => onDelete\(node\.ID\)\}/);
+  });
 });

@@ -3,6 +3,7 @@ package nodes
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/liulei/proxymorph/internal/httpapi"
@@ -49,4 +50,35 @@ func (h Handler) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.JSON(w, http.StatusCreated, imported)
+}
+
+func (h Handler) ServeNode(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNodeID(r.URL.Path)
+	if !ok {
+		httpapi.Error(w, http.StatusNotFound, "node not found")
+		return
+	}
+	switch r.Method {
+	case http.MethodDelete:
+		h.Delete(w, r, id)
+	default:
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (h Handler) Delete(w http.ResponseWriter, r *http.Request, id int64) {
+	if err := h.Service.Delete(httpapi.UserID(r.Context()), id); err != nil {
+		httpapi.Error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	httpapi.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func parseNodeID(path string) (int64, bool) {
+	rest := strings.TrimPrefix(path, "/api/nodes/")
+	if rest == path || rest == "" || strings.Contains(strings.Trim(rest, "/"), "/") {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(strings.Trim(rest, "/"), 10, 64)
+	return id, err == nil && id > 0
 }

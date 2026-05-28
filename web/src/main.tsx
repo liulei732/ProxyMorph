@@ -168,26 +168,62 @@ function App() {
     payload.refresh_interval_seconds = Number(payload.refresh_interval_seconds || 3600) as unknown as FormDataEntryValue;
     try {
       await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
-      event.currentTarget.reset();
-      await refresh();
-      notify(t.taskList.saved);
     } catch {
       setError(t.createFailed);
       notify(t.createFailed);
+      return;
+    }
+    event.currentTarget.reset();
+    notify(t.taskList.created);
+    try {
+      await refresh();
+    } catch {
+      notify(t.refreshFailed);
     }
   }
 
   async function importNodes(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     try {
       const payload = Object.fromEntries(new FormData(event.currentTarget));
       await api("/api/nodes/import", { method: "POST", body: JSON.stringify(payload) });
-      event.currentTarget.reset();
-      await refresh();
-      await refreshVisiblePreview("current_preview");
-      notify(t.refreshed);
     } catch {
-      notify(t.createFailed);
+      notify(t.nodeList.importFailed);
+      return;
+    }
+    formElement.reset();
+    notify(t.nodeList.imported);
+    try {
+      await refresh();
+    } catch {
+      notify(t.refreshFailed);
+    }
+    try {
+      await refreshVisiblePreview("current_preview");
+    } catch {
+      notify(t.preview.loadFailed);
+    }
+  }
+
+  async function deleteNode(id: number) {
+    if (!window.confirm(t.nodeList.confirmDelete)) return;
+    try {
+      await api(`/api/nodes/${id}`, { method: "DELETE" });
+    } catch {
+      notify(t.nodeList.deleteFailed);
+      return;
+    }
+    notify(t.nodeList.deleted);
+    try {
+      await refresh();
+    } catch {
+      notify(t.refreshFailed);
+    }
+    try {
+      await refreshVisiblePreview("current_preview");
+    } catch {
+      notify(t.preview.loadFailed);
     }
   }
 
@@ -411,7 +447,7 @@ function App() {
               <label>{t.forms.proxyURIs}<textarea name="text" rows={6} placeholder={t.placeholders.proxyURIs} /></label>
               <button><Plus size={16} /> {t.forms.importNodes}</button>
             </form>
-            <NodeList nodes={nodes} t={t} />
+            <NodeList nodes={nodes} t={t} onDelete={deleteNode} />
           </section>
         )}
 
@@ -1290,7 +1326,7 @@ function formatTime(value: string) {
   return date.toLocaleString();
 }
 
-function NodeList({ nodes, t }: { nodes: PinnedNode[]; t: typeof translations[Language] }) {
+function NodeList({ nodes, t, onDelete }: { nodes: PinnedNode[]; t: typeof translations[Language]; onDelete: (id: number) => void }) {
   return (
     <section className="panel">
       <h3>{t.nodeList.title}</h3>
@@ -1304,6 +1340,7 @@ function NodeList({ nodes, t }: { nodes: PinnedNode[]; t: typeof translations[La
             <span className="badge">{node.Protocol}</span>
             <span>{node.DefaultInclude ? t.nodeList.default : t.nodeList.manual}</span>
             <span>{node.Enabled ? t.nodeList.enabled : t.nodeList.disabled}</span>
+            <button type="button" className="danger-button" onClick={() => onDelete(node.ID)}><Trash2 size={15} /> {t.nodeList.delete}</button>
           </div>
         )) : <p className="muted">{t.nodeList.empty}</p>}
       </div>

@@ -46,6 +46,42 @@ func TestImportURIsAcceptsSurgeProxyLines(t *testing.T) {
 	}
 }
 
+func TestDeleteNodeRemovesOnlyUsersNode(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	res, err := db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES ('other', 'hash')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherUserID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db)
+	node, err := service.Create(userID, CreateInput{Name: "Edge", Protocol: "trojan", Server: "edge.example.com", Port: 443, Params: map[string]string{"password": "secret"}, Enabled: true})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	if err := service.Delete(otherUserID, node.ID); err == nil {
+		t.Fatal("Delete should reject nodes owned by another user")
+	}
+	if err := service.Delete(userID, node.ID); err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+	nodes, err := service.List(userID)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(nodes) != 0 {
+		t.Fatalf("node should be deleted: %#v", nodes)
+	}
+}
+
 func TestListNodesReturnsEmptySlice(t *testing.T) {
 	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
