@@ -317,6 +317,10 @@ func validateRulePolicies(rules []string, finalPolicy string, availablePolicies 
 }
 
 func rulePolicy(rule string) (string, bool) {
+	rule = stripRuleComment(rule)
+	if rule == "" {
+		return "", false
+	}
 	parts := strings.Split(rule, ",")
 	if len(parts) < 2 {
 		return "", false
@@ -340,6 +344,23 @@ func rulePolicy(rule string) (string, bool) {
 		return "", false
 	}
 	return policy, true
+}
+
+func stripRuleComment(rule string) string {
+	rule = strings.TrimSpace(rule)
+	if rule == "" || strings.HasPrefix(rule, "#") {
+		return ""
+	}
+	for i := 0; i < len(rule)-1; i++ {
+		if rule[i] == '/' && rule[i+1] == '/' && i > 0 && isRuleCommentSpace(rule[i-1]) {
+			return strings.TrimSpace(rule[:i])
+		}
+	}
+	return rule
+}
+
+func isRuleCommentSpace(value byte) bool {
+	return value == ' ' || value == '\t'
 }
 
 func isBooleanRuleOption(part string) bool {

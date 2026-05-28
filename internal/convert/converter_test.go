@@ -436,6 +436,36 @@ func TestRenderSurge6KeepsProxyRulePolicyWhenProxyGroupExists(t *testing.T) {
 	)
 }
 
+func TestRenderSurge6IgnoresCommentedRulesDuringPolicyValidation(t *testing.T) {
+	result, err := RenderSurge6WithWarnings(
+		[]Node{{Name: "Remote", Protocol: "ss", Server: "remote.example", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "pass"}}},
+		[]Group{{Name: "Proxy", Type: "select", Proxies: []string{"Remote"}}},
+		[]string{"# DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/tld-not-cn.txt,Proxy // 国外。"},
+		SurgeConfig{},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithWarnings returned render error: %v", err)
+	}
+	if result.Warning != "" {
+		t.Fatalf("commented rules should not raise policy warnings: %s", result.Warning)
+	}
+}
+
+func TestRenderSurge6IgnoresInlineRuleCommentsDuringPolicyValidation(t *testing.T) {
+	result, err := RenderSurge6WithWarnings(
+		[]Node{{Name: "Remote", Protocol: "ss", Server: "remote.example", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "pass"}}},
+		[]Group{{Name: "Proxy", Type: "select", Proxies: []string{"Remote"}}},
+		[]string{"DOMAIN-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/tld-not-cn.txt,Proxy // 国外。"},
+		SurgeConfig{},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithWarnings returned render error: %v", err)
+	}
+	if result.Warning != "" {
+		t.Fatalf("inline comments should not be part of the policy name: %s", result.Warning)
+	}
+}
+
 func TestRenderSurge6KeepsProxyRulePolicyWhenProxyNodeExists(t *testing.T) {
 	out := RenderSurge6(
 		[]Node{{Name: "Proxy", Protocol: "ss", Server: "remote.example", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "pass"}}},
