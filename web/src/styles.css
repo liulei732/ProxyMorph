@@ -118,6 +118,7 @@ h1, h2, h3, p { margin-top: 0; }
 .policy-helper { position: sticky; top: 16px; display: grid; gap: 10px; border: 1px solid var(--line); border-radius: 7px; padding: 12px; background: white; }
 .policy-helper h4 { margin: 0; font-size: 14px; }
 .policy-helper p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.policy-import-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .policy-member-overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px; background: rgba(16, 24, 40, 0.34); }
 .policy-member-dialog { width: min(780px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 48px)); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: white; box-shadow: 0 24px 70px rgba(24, 34, 48, 0.28); }
 .policy-member-dialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -155,6 +156,7 @@ pre { overflow: auto; min-height: 180px; padding: 14px; border-radius: 7px; back
   .task-editor-header { flex-direction: column; }
   .policy-editor-toolbar { align-items: stretch; flex-direction: column; }
   .policy-helper { position: static; }
+  .policy-import-actions { grid-template-columns: 1fr; }
   .policy-member-tools, .policy-member-list { grid-template-columns: 1fr; }
   .policy-member-dialog footer span { width: 100%; margin-right: 0; }
 }

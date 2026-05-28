@@ -5,6 +5,12 @@ export type ProxyNodeCandidate = {
   category: ProxyNodeCategory;
 };
 
+export type ProxyGroupCandidate = {
+  name: string;
+  type: string;
+  members: string[];
+};
+
 const subscriptionInfoPatterns = [
   /剩余流量/i,
   /流量/i,
@@ -45,6 +51,78 @@ export function parseProxyNodeCandidates(content: string): ProxyNodeCandidate[] 
   return result;
 }
 
+export function parseProxyGroupCandidates(content: string): ProxyGroupCandidate[] {
+  const result: ProxyGroupCandidate[] = [];
+  let inProxyGroupSection = false;
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("[") && line.endsWith("]")) {
+      inProxyGroupSection = line.toLowerCase() === "[proxy group]";
+      continue;
+    }
+    if (!inProxyGroupSection) continue;
+
+    const equalIndex = line.indexOf("=");
+    if (equalIndex < 1) continue;
+
+    const name = line.slice(0, equalIndex).trim();
+    const parts = splitCommaList(line.slice(equalIndex + 1));
+    const type = parts.shift()?.trim() || "";
+    if (!name || !type) continue;
+    result.push({
+      name,
+      type,
+      members: parts.map(unquoteValue).filter((member) => member && !isProxyGroupOption(member)),
+    });
+  }
+
+  return result;
+}
+
 function isSubscriptionInfoNode(name: string) {
   return subscriptionInfoPatterns.some((pattern) => pattern.test(name));
+}
+
+function splitCommaList(value: string) {
+  const items: string[] = [];
+  let current = "";
+  let quoted = false;
+  let escaped = false;
+
+  for (const char of value) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      current += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      current += char;
+      quoted = !quoted;
+      continue;
+    }
+    if (char === "," && !quoted) {
+      items.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  items.push(current);
+  return items.map((item) => item.trim()).filter(Boolean);
+}
+
+function unquoteValue(value: string) {
+  if (!value.startsWith('"') || !value.endsWith('"')) return value;
+  return value.slice(1, -1).replaceAll('\\"', '"').replaceAll("\\\\", "\\");
+}
+
+function isProxyGroupOption(value: string) {
+  return /^[A-Za-z][A-Za-z0-9-]*\s*=/.test(value);
 }

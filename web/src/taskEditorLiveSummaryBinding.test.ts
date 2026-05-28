@@ -44,4 +44,17 @@ describe("task editor live summary binding", () => {
     assert.match(source, /addBatchMembers\(targetGroup\)/);
     assert.doesNotMatch(source, /addToFirstGroup/);
   });
+
+  it("supports importing members from existing preview policy groups", () => {
+    assert.match(source, /parseProxyGroupCandidates\(previewContent\)/);
+    assert.match(source, /selectedImportGroup/);
+    assert.match(source, /importGroupMembers\(targetGroup, selectedImportGroup.members, "append"\)/);
+    assert.match(source, /importGroupMembers\(targetGroup, selectedImportGroup.members, "replace"\)/);
+  });
+
+  it("keeps policy member textarea text stable while editing", () => {
+    assert.match(source, /memberDrafts/);
+    assert.match(source, /handleMemberDraftChange\(group, event\.currentTarget\.value\)/);
+    assert.doesNotMatch(source, /value=\{group\.members\.join\("\\n"\)\}/);
+  });
 });

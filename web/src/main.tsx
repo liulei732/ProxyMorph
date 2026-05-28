@@ -6,7 +6,7 @@ import { getInitialLanguage, languageStorageKey, languages, translations, type L
 import { absoluteSubscriptionURL as buildAbsoluteSubscriptionURL, enabledManagedHeaderPreviewFromValues, managedHeaderPreviewFromValues, type GlobalManagedURLMode, type ManagedConfigDefaults, type ManagedIntervalMode, type ManagedPreviewValues, type ManagedURLMode, type RuleMergeMode, type TriStateMode, type VLESSRelayMode } from "./managedPreview";
 import { createPolicyGroup, membersFromText, parsePolicyGroupsText, policyGroupLine, policyGroupsText, type PolicyGroup, type PolicyGroupType } from "./policyGroups";
 import { previewRefreshTaskID, type PreviewChangeScope, type PreviewState } from "./previewState";
-import { parseProxyNodeCandidates, type ProxyNodeCandidate } from "./surgePreviewNodes";
+import { parseProxyGroupCandidates, parseProxyNodeCandidates, type ProxyNodeCandidate } from "./surgePreviewNodes";
 import { taskEditorAsideMode, taskManagedURLModes, type TaskEditorSection } from "./taskEditorSummary";
 import "./styles.css";
 
@@ -782,11 +782,14 @@ function SummaryList({ items }: { items: Array<[string, string]> }) {
 function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: string; previewContent: string; t: typeof translations[Language]; onChange: (value: string) => void }) {
   const parsedGroups = React.useMemo(() => parsePolicyGroupsText(value), [value]);
   const nodeCandidates = React.useMemo(() => parseProxyNodeCandidates(previewContent), [previewContent]);
+  const importGroups = React.useMemo(() => parseProxyGroupCandidates(previewContent), [previewContent]);
   const [advancedMode, setAdvancedMode] = React.useState(() => Boolean(value.trim() && parsedGroups.length === 0));
   const [groups, setGroups] = React.useState<PolicyGroup[]>(() => parsedGroups);
   const [batchMembers, setBatchMembers] = React.useState("");
   const [targetGroupID, setTargetGroupID] = React.useState(() => parsedGroups[0]?.id || "");
+  const [importGroupName, setImportGroupName] = React.useState("");
   const [selectorGroupID, setSelectorGroupID] = React.useState("");
+  const [memberDrafts, setMemberDrafts] = React.useState<Record<string, string>>(() => memberDraftsFromGroups(parsedGroups));
   const lastStructuredValue = React.useRef(policyGroupsText(groups));
 
   React.useEffect(() => {
@@ -794,6 +797,7 @@ function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: stri
     const next = parsePolicyGroupsText(value);
     if (next.length) {
       setGroups(next);
+      setMemberDrafts(memberDraftsFromGroups(next));
       setTargetGroupID((current) => next.some((group) => group.id === current) ? current : next[0].id);
       lastStructuredValue.current = value;
       setAdvancedMode(false);
@@ -802,10 +806,19 @@ function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: stri
     }
   }, [value]);
 
+  React.useEffect(() => {
+    if (!importGroups.length) {
+      setImportGroupName("");
+      return;
+    }
+    setImportGroupName((current) => importGroups.some((group) => group.name === current) ? current : importGroups[0].name);
+  }, [importGroups]);
+
   function commit(nextGroups: PolicyGroup[]) {
     const nextValue = policyGroupsText(nextGroups);
     lastStructuredValue.current = nextValue;
     setGroups(nextGroups);
+    setMemberDrafts((current) => reconcileMemberDrafts(current, nextGroups));
     setTargetGroupID((current) => nextGroups.some((group) => group.id === current) ? current : (nextGroups[0]?.id || ""));
     onChange(nextValue);
   }
@@ -830,7 +843,17 @@ function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: stri
     updateGroup(group.id, { members: nextMembers });
   }
 
+  function importGroupMembers(group: PolicyGroup, members: string[], mode: "append" | "replace") {
+    updateGroup(group.id, { members: mode === "replace" ? members : mergeMembers(group.members, members) });
+  }
+
+  function handleMemberDraftChange(group: PolicyGroup, text: string) {
+    setMemberDrafts((current) => ({ ...current, [group.id]: text }));
+    updateGroup(group.id, { members: membersFromText(text) });
+  }
+
   const targetGroup = groups.find((group) => group.id === targetGroupID) || groups[0];
+  const selectedImportGroup = importGroups.find((group) => group.name === importGroupName) || importGroups[0];
   const selectorGroup = groups.find((group) => group.id === selectorGroupID);
   const generatedPreview = policyGroupsText(groups);
 
@@ -877,7 +900,7 @@ function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: stri
               {group.type === "smart" && (
                 <label className="editor-switch"><input type="checkbox" checked={group.includeAllProxies} onChange={(event) => updateGroup(group.id, { includeAllProxies: event.currentTarget.checked })} /> {t.policyGroups.includeAllProxies}</label>
               )}
-              <label>{t.policyGroups.members}<textarea rows={5} value={group.members.join("\n")} onChange={(event) => updateGroup(group.id, { members: membersFromText(event.currentTarget.value) })} placeholder={t.policyGroups.membersPlaceholder} /></label>
+              <label>{t.policyGroups.members}<textarea rows={5} value={memberDrafts[group.id] ?? group.members.join("\n")} onChange={(event) => handleMemberDraftChange(group, event.currentTarget.value)} placeholder={t.policyGroups.membersPlaceholder} /></label>
               <button type="button" className="secondary-button" onClick={() => setSelectorGroupID(group.id)}>{t.policyGroups.selectMembers}</button>
               <pre className="inline-preview policy-line-preview">{policyGroupLine(group) || t.policyGroups.emptyPreview}</pre>
             </section>
@@ -900,6 +923,18 @@ function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: stri
           </select></label>
           <textarea rows={6} value={batchMembers} onChange={(event) => setBatchMembers(event.currentTarget.value)} placeholder={t.policyGroups.batchPlaceholder} />
           <button type="button" disabled={!targetGroup || !batchMembers.trim()} onClick={() => targetGroup && addBatchMembers(targetGroup)}><Plus size={14} /> {t.policyGroups.addToTargetGroup}</button>
+          <h4>{t.policyGroups.importTitle}</h4>
+          <p>{t.policyGroups.importHint}</p>
+          <label>{t.policyGroups.importSource}<select value={selectedImportGroup?.name || ""} onChange={(event) => setImportGroupName(event.currentTarget.value)} disabled={!importGroups.length}>
+            {importGroups.map((group) => (
+              <option key={group.name} value={group.name}>{`${group.name} (${group.type}, ${group.members.length})`}</option>
+            ))}
+          </select></label>
+          <div className="policy-import-actions">
+            <button type="button" className="secondary-button" disabled={!targetGroup || !selectedImportGroup} onClick={() => targetGroup && selectedImportGroup && importGroupMembers(targetGroup, selectedImportGroup.members, "append")}>{t.policyGroups.importAppend}</button>
+            <button type="button" className="secondary-button" disabled={!targetGroup || !selectedImportGroup} onClick={() => targetGroup && selectedImportGroup && importGroupMembers(targetGroup, selectedImportGroup.members, "replace")}>{t.policyGroups.importReplace}</button>
+          </div>
+          {!importGroups.length && <p className="field-note">{t.policyGroups.noPreviewGroups}</p>}
           <h4>{t.policyGroups.generatedTitle}</h4>
           <pre className="inline-preview">{generatedPreview || t.policyGroups.emptyPreview}</pre>
         </aside>
@@ -1002,6 +1037,17 @@ function PolicyMemberGroup({ title, emptyText, nodes, selected, onToggle }: { ti
 
 function mergeMembers(current: string[], next: string[]) {
   return [...current, ...next].filter((member, index, members) => member.trim() && members.indexOf(member) === index);
+}
+
+function memberDraftsFromGroups(groups: PolicyGroup[]) {
+  return Object.fromEntries(groups.map((group) => [group.id, group.members.join("\n")]));
+}
+
+function reconcileMemberDrafts(current: Record<string, string>, groups: PolicyGroup[]) {
+  return Object.fromEntries(groups.map((group) => {
+    const nextText = group.members.join("\n");
+    return [group.id, current[group.id] === undefined || membersFromText(current[group.id]).join("\n") !== nextText ? nextText : current[group.id]];
+  }));
 }
 
 function policyGroupTypeOptions(t: typeof translations[Language]) {
