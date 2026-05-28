@@ -3,6 +3,11 @@ import { createRoot } from "react-dom/client";
 import { AlertCircle, Copy, Eye, KeyRound, Layers, Pencil, Play, Plus, RefreshCw, Save, Server, ShieldCheck, Trash2, X } from "lucide-react";
 import { api } from "./api";
 import { getInitialLanguage, languageStorageKey, languages, translations, type Language } from "./i18n";
+import { absoluteSubscriptionURL as buildAbsoluteSubscriptionURL, enabledManagedHeaderPreviewFromValues, managedHeaderPreviewFromValues, type GlobalManagedURLMode, type ManagedConfigDefaults, type ManagedIntervalMode, type ManagedPreviewValues, type ManagedURLMode, type RuleMergeMode, type TriStateMode, type VLESSRelayMode } from "./managedPreview";
+import { createPolicyGroup, membersFromText, parsePolicyGroupsText, policyGroupLine, policyGroupsText, type PolicyGroup, type PolicyGroupType } from "./policyGroups";
+import { previewRefreshTaskID, type PreviewChangeScope, type PreviewState } from "./previewState";
+import { parseProxyNodeCandidates, type ProxyNodeCandidate } from "./surgePreviewNodes";
+import { taskEditorAsideMode, taskManagedURLModes, type TaskEditorSection } from "./taskEditorSummary";
 import "./styles.css";
 
 type Task = {
@@ -21,6 +26,7 @@ type Task = {
   IncludeGlobalRules: boolean;
   CustomRulesText: string;
   RuleMergeMode: RuleMergeMode;
+  FinalRulePolicy: string;
   CustomGroupsText: string;
   VLESSRelayMode: VLESSRelayMode;
   ManagedConfigMode: TriStateMode;
@@ -31,24 +37,9 @@ type Task = {
   ManagedConfigStrictMode: TriStateMode;
 };
 
-type RuleMergeMode = "custom_first" | "upstream_first" | "custom_first_dedupe" | "upstream_first_dedupe";
-type VLESSRelayMode = "global" | "enabled" | "disabled";
-type TriStateMode = "global" | "enabled" | "disabled";
-type ManagedURLMode = "global" | "task_subscription" | "custom";
-type GlobalManagedURLMode = "task_subscription" | "custom";
-type ManagedIntervalMode = "global" | "custom";
-
 type RuleConfig = {
   CustomRulesText: string;
   VLESSRelayEnabled: boolean;
-};
-
-type ManagedConfigDefaults = {
-  Enabled: boolean;
-  URLMode: GlobalManagedURLMode;
-  CustomURL: string;
-  IntervalSeconds: number;
-  Strict: boolean;
 };
 
 type PinnedNode = {
@@ -74,6 +65,7 @@ function App() {
   const [toast, setToast] = React.useState("");
   const [busyTaskID, setBusyTaskID] = React.useState<number | null>(null);
   const [previewContent, setPreviewContent] = React.useState("");
+  const [previewState, setPreviewState] = React.useState<PreviewState>({ taskID: null });
   const t = translations[language];
 
   function changeLanguage(nextLanguage: Language) {
@@ -125,6 +117,17 @@ function App() {
     if (showToast) notify(t.refreshed);
   }
 
+  async function refreshVisiblePreview(changedTaskID: PreviewChangeScope) {
+    const taskID = previewRefreshTaskID(changedTaskID, previewState);
+    if (!taskID) return;
+    try {
+      const result = await api<{ content: string }>(`/api/tasks/${taskID}/preview`);
+      setPreviewContent(result.content);
+    } catch {
+      notify(t.preview.loadFailed);
+    }
+  }
+
   async function login(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -162,6 +165,7 @@ function App() {
       await api("/api/nodes/import", { method: "POST", body: JSON.stringify(payload) });
       event.currentTarget.reset();
       await refresh();
+      await refreshVisiblePreview("current_preview");
       notify(t.refreshed);
     } catch {
       notify(t.createFailed);
@@ -173,6 +177,7 @@ function App() {
     try {
       await api(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(input) });
       await refresh();
+      await refreshVisiblePreview(id);
       notify(t.taskList.saved);
     } catch {
       notify(t.taskList.saveFailed);
@@ -193,6 +198,7 @@ function App() {
         }),
       });
       setRuleConfig(next);
+      await refreshVisiblePreview("current_preview");
       notify(t.settings.ruleConfigSaved);
     } catch {
       notify(t.settings.ruleConfigSaveFailed);
@@ -216,6 +222,7 @@ function App() {
         }),
       });
       setManagedConfigDefaults(next);
+      await refreshVisiblePreview("current_preview");
       notify(t.settings.managedConfigSaved);
     } catch {
       notify(t.settings.managedConfigSaveFailed);
@@ -228,6 +235,7 @@ function App() {
     try {
       await api(`/api/tasks/${id}`, { method: "DELETE" });
       await refresh();
+      await refreshVisiblePreview("current_preview");
       notify(t.taskList.deleted);
     } catch {
       notify(t.taskList.deleteFailed);
@@ -241,6 +249,7 @@ function App() {
     try {
       const result = await api<{ content: string }>(`/api/tasks/${id}/generate`, { method: "POST" });
       setPreviewContent(result.content);
+      setPreviewState({ taskID: id });
       setTab("preview");
       await refresh();
       notify(t.taskList.generated);
@@ -257,6 +266,7 @@ function App() {
     try {
       const result = await api<{ content: string }>(`/api/tasks/${id}/preview`);
       setPreviewContent(result.content);
+      setPreviewState({ taskID: id });
       setTab("preview");
       await refresh();
       notify(t.preview.loaded);
@@ -264,6 +274,17 @@ function App() {
       notify(t.preview.loadFailed);
     } finally {
       setBusyTaskID(null);
+    }
+  }
+
+  async function previewDraft(id: number, input: TaskUpdateInput) {
+    const taskID = previewRefreshTaskID(id, previewState);
+    if (!taskID) return;
+    try {
+      const result = await api<{ content: string }>(`/api/tasks/${taskID}/preview`, { method: "POST", body: JSON.stringify(input) });
+      setPreviewContent(result.content);
+    } catch {
+      notify(t.preview.loadFailed);
     }
   }
 
@@ -335,7 +356,7 @@ function App() {
               <Metric icon={<Layers />} value={tasks.filter((task) => task.IncludeGlobalRules).length} label={t.metrics.globalRules} />
               <Metric icon={<AlertCircle />} value={errors.length} label={t.metrics.errors} />
             </div>
-            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} />
+            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} previewContent={previewContent} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} onPreviewDraft={previewDraft} />
           </section>
         )}
 
@@ -348,7 +369,7 @@ function App() {
               <button><Plus size={16} /> {t.forms.create}</button>
             </form>
             {error && <p className="error">{error}</p>}
-            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} />
+            <TaskList tasks={tasks} t={t} managedConfigDefaults={managedConfigDefaults} previewContent={previewContent} busyTaskID={busyTaskID} onCopy={notify} onUpdate={updateTask} onDelete={deleteTask} onGenerate={generateTask} onPreview={loadPreview} onPreviewDraft={previewDraft} />
           </section>
         )}
 
@@ -404,6 +425,7 @@ type TaskUpdateInput = {
   include_global_rules?: boolean;
   custom_rules_text?: string;
   rule_merge_mode?: RuleMergeMode;
+  final_rule_policy?: string;
   custom_groups_text?: string;
   vless_relay_mode?: VLESSRelayMode;
   managed_config_mode?: TriStateMode;
@@ -440,29 +462,33 @@ function TaskList({
   tasks,
   t,
   managedConfigDefaults,
+  previewContent,
   busyTaskID,
   onCopy,
   onUpdate,
   onDelete,
   onGenerate,
   onPreview,
+  onPreviewDraft,
 }: {
   tasks: Task[];
   t: typeof translations[Language];
   managedConfigDefaults: ManagedConfigDefaults;
+  previewContent: string;
   busyTaskID: number | null;
   onCopy: (message: string) => void;
   onUpdate: (id: number, input: TaskUpdateInput) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onGenerate: (id: number) => Promise<void>;
   onPreview: (id: number) => Promise<void>;
+  onPreviewDraft: (id: number, input: TaskUpdateInput) => Promise<void>;
 }) {
   return (
     <section className="panel">
       <h3>{t.taskList.title}</h3>
       <div className="list">
         {tasks.length ? tasks.map((task) => (
-          <TaskRow key={task.ID} task={task} t={t} managedConfigDefaults={managedConfigDefaults} busy={busyTaskID === task.ID} onCopy={onCopy} onUpdate={onUpdate} onDelete={onDelete} onGenerate={onGenerate} onPreview={onPreview} />
+          <TaskRow key={task.ID} task={task} t={t} managedConfigDefaults={managedConfigDefaults} previewContent={previewContent} busy={busyTaskID === task.ID} onCopy={onCopy} onUpdate={onUpdate} onDelete={onDelete} onGenerate={onGenerate} onPreview={onPreview} onPreviewDraft={onPreviewDraft} />
         )) : <p className="muted">{t.taskList.empty}</p>}
       </div>
     </section>
@@ -473,25 +499,51 @@ function TaskRow({
   task,
   t,
   managedConfigDefaults,
+  previewContent,
   busy,
   onCopy,
   onUpdate,
   onDelete,
   onGenerate,
   onPreview,
+  onPreviewDraft,
 }: {
   task: Task;
   t: typeof translations[Language];
   managedConfigDefaults: ManagedConfigDefaults;
+  previewContent: string;
   busy: boolean;
   onCopy: (message: string) => void;
   onUpdate: (id: number, input: TaskUpdateInput) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onGenerate: (id: number) => Promise<void>;
   onPreview: (id: number) => Promise<void>;
+  onPreviewDraft: (id: number, input: TaskUpdateInput) => Promise<void>;
 }) {
   const [editing, setEditing] = React.useState(false);
+  const [section, setSection] = React.useState<TaskEditorSection>("basic");
+  const [draft, setDraft] = React.useState<TaskUpdateInput>(() => taskDraftInput(task));
+  const [managedPreviewValues, setManagedPreviewValues] = React.useState<ManagedPreviewValues>(() => initialManagedPreviewValues(task));
   const status = taskStatus(task, busy, t);
+  const editorSections = taskEditorSections(t);
+  const managedConfigPreview = managedHeaderPreviewFromValues(managedPreviewValues, task.SubscriptionURL, managedConfigDefaults, location.origin);
+  const managedConfigEnabledPreview = enabledManagedHeaderPreviewFromValues(managedPreviewValues, task.SubscriptionURL, managedConfigDefaults, location.origin);
+  const managedModeLabel = managedPreviewValues.ManagedConfigMode === "global"
+    ? t.taskEditor.global
+    : t.managedConfigModes[managedPreviewValues.ManagedConfigMode];
+  const asideMode = taskEditorAsideMode(section);
+  const draftMergeDefaultPinnedNodes = draft.merge_default_pinned_nodes || false;
+  const draftIncludeGlobalRules = draft.include_global_rules || false;
+  const draftRuleMergeMode = draft.rule_merge_mode || "custom_first";
+  const draftFinalRulePolicy = draft.final_rule_policy || "";
+  const draftVLESSRelayMode = draft.vless_relay_mode || "global";
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(taskDraftInput(task));
+      setManagedPreviewValues(initialManagedPreviewValues(task));
+    }
+  }, [editing, task]);
 
   async function copyURL() {
     await navigator.clipboard.writeText(absoluteSubscriptionURL(task.SubscriptionURL));
@@ -500,26 +552,29 @@ function TaskRow({
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await onUpdate(task.ID, {
-      name: String(form.get("name") || ""),
-      source_url: String(form.get("source_url") || ""),
-      refresh_interval_seconds: Number(form.get("refresh_interval_seconds") || 3600),
-      enabled: form.get("enabled") === "on",
-      merge_default_pinned_nodes: form.get("merge_default_pinned_nodes") === "on",
-      include_global_rules: form.get("include_global_rules") === "on",
-      custom_rules_text: String(form.get("custom_rules_text") || ""),
-      rule_merge_mode: String(form.get("rule_merge_mode") || "custom_first") as RuleMergeMode,
-      custom_groups_text: String(form.get("custom_groups_text") || ""),
-      vless_relay_mode: String(form.get("vless_relay_mode") || "global") as VLESSRelayMode,
-      managed_config_mode: String(form.get("managed_config_mode") || "global") as TriStateMode,
-      managed_config_url_mode: String(form.get("managed_config_url_mode") || "global") as ManagedURLMode,
-      managed_config_custom_url: String(form.get("managed_config_custom_url") || ""),
-      managed_config_interval_mode: String(form.get("managed_config_interval_mode") || "global") as ManagedIntervalMode,
-      managed_config_interval_seconds: Number(form.get("managed_config_interval_seconds") || 86400),
-      managed_config_strict_mode: String(form.get("managed_config_strict_mode") || "global") as TriStateMode,
-    });
+    await onUpdate(task.ID, draft);
     setEditing(false);
+  }
+
+  function updateDraft<Key extends keyof TaskUpdateInput>(key: Key, value: TaskUpdateInput[Key]) {
+    setDraft((current) => {
+      const next = { ...current, [key]: value };
+      void onPreviewDraft(task.ID, next);
+      return next;
+    });
+  }
+
+  function updateManagedPreviewValue<Key extends keyof ManagedPreviewValues>(key: Key, value: ManagedPreviewValues[Key]) {
+    setManagedPreviewValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateManagedField<Key extends keyof ManagedPreviewValues, DraftKey extends keyof TaskUpdateInput>(
+    key: Key,
+    value: ManagedPreviewValues[Key],
+    draftKey: DraftKey,
+  ) {
+    updateManagedPreviewValue(key, value);
+    updateDraft(draftKey, value as TaskUpdateInput[DraftKey]);
   }
 
   return (
@@ -542,30 +597,466 @@ function TaskRow({
         {task.LastErrorMessage && <p className="row-error">{task.LastErrorMessage}</p>}
       </div>
       {editing && (
-        <form className="edit-form" onSubmit={save}>
-          <label>{t.forms.name}<input name="name" defaultValue={task.Name} /></label>
-          <label>{t.forms.clashURL}<input name="source_url" defaultValue={task.SourceURL} /></label>
-          <label>{t.forms.refreshSeconds}<input name="refresh_interval_seconds" type="number" defaultValue={task.RefreshIntervalSeconds} /></label>
-          <label className="check-label"><input name="enabled" type="checkbox" defaultChecked={task.Enabled} /> {t.forms.enabled}</label>
-          <label className="check-label"><input name="merge_default_pinned_nodes" type="checkbox" defaultChecked={task.MergeDefaultPinnedNodes} /> {t.forms.mergeDefaults}</label>
-          <label className="check-label"><input name="include_global_rules" type="checkbox" defaultChecked={task.IncludeGlobalRules} /> {t.forms.includeGlobalRules}</label>
-          <label>{t.forms.ruleMergeMode}<select name="rule_merge_mode" defaultValue={task.RuleMergeMode}>{ruleMergeOptions(t)}</select></label>
-          <label>{t.forms.vlessRelayMode}<select name="vless_relay_mode" defaultValue={task.VLESSRelayMode || "global"}>{vlessRelayModeOptions(t)}</select></label>
-          <label>{t.forms.managedConfigMode}<select name="managed_config_mode" defaultValue={task.ManagedConfigMode || "global"}>{triStateOptions(t.managedConfigModes)}</select></label>
-          <label>{t.forms.managedConfigURLMode}<select name="managed_config_url_mode" defaultValue={task.ManagedConfigURLMode || "global"}>{managedURLModeOptions(t)}</select></label>
-          <label>{t.forms.managedConfigCustomURL}<input name="managed_config_custom_url" defaultValue={task.ManagedConfigCustomURL} placeholder="https://profiles.example.com/main.conf" /></label>
-          <label>{t.forms.managedConfigIntervalMode}<select name="managed_config_interval_mode" defaultValue={task.ManagedConfigIntervalMode || "global"}>{managedIntervalModeOptions(t)}</select></label>
-          <label>{t.forms.managedConfigIntervalCustom}<input name="managed_config_interval_seconds" type="number" min="60" defaultValue={task.ManagedConfigIntervalSeconds || 86400} /></label>
-          <label>{t.forms.managedConfigStrictMode}<select name="managed_config_strict_mode" defaultValue={task.ManagedConfigStrictMode || "global"}>{triStateOptions(t.managedConfigStrictModes)}</select></label>
-          <label className="wide-field">{t.forms.managedConfigPreview}<pre className="inline-preview">{managedHeaderPreview(task, managedConfigDefaults)}</pre></label>
-          <label className="wide-field">{t.forms.customRules}<textarea name="custom_rules_text" rows={5} defaultValue={task.CustomRulesText} placeholder={t.placeholders.customRules} /></label>
-          <label className="wide-field">{t.forms.customGroups}<textarea name="custom_groups_text" rows={4} defaultValue={task.CustomGroupsText} placeholder={t.placeholders.customGroups} /></label>
-          <button disabled={busy}><Save size={15} /> {busy ? t.saving : t.forms.save}</button>
-          <button type="button" onClick={() => setEditing(false)}><X size={15} /> {t.forms.cancel}</button>
+        <form className="task-editor" onSubmit={save}>
+          <header className="task-editor-header">
+            <div>
+              <span>{t.taskEditor.editing}</span>
+              <h3>{t.taskEditor.editTitle}</h3>
+              <p>{`${task.Name} · ${t.taskEditor.guidance}`}</p>
+            </div>
+            <button type="button" className="secondary-button" onClick={() => setEditing(false)}>{t.taskEditor.collapse}</button>
+          </header>
+
+          <div className="task-editor-tabs" role="tablist" aria-label={t.taskEditor.editTitle}>
+            {editorSections.map((item) => (
+              <button key={item.id} type="button" className={`task-editor-tab ${section === item.id ? "active" : ""}`} onClick={() => setSection(item.id)}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <section className="task-editor-shell">
+            <div className="task-editor-body">
+              <div className={section === "basic" ? "editor-pane active" : "editor-pane"}>
+                <EditorSubsection title={t.taskEditor.sections.basic} description={t.taskEditor.intro.basic}>
+                  <div className="editor-grid">
+                    <label>{t.forms.name}<input name="name" value={draft.name || ""} onChange={(event) => updateDraft("name", event.currentTarget.value)} /></label>
+                    <label>{t.forms.refreshSeconds}<input name="refresh_interval_seconds" type="number" value={draft.refresh_interval_seconds || 3600} onChange={(event) => updateDraft("refresh_interval_seconds", Number(event.currentTarget.value))} /></label>
+                    <label className="editor-switch"><input name="enabled" type="checkbox" checked={draft.enabled || false} onChange={(event) => updateDraft("enabled", event.currentTarget.checked)} /> {t.forms.enabled}</label>
+                    <label className="wide-field">{t.forms.clashURL}<input name="source_url" value={draft.source_url || ""} onChange={(event) => updateDraft("source_url", event.currentTarget.value)} /></label>
+                  </div>
+                </EditorSubsection>
+              </div>
+
+              <div className={section === "conversion" ? "editor-pane active" : "editor-pane"}>
+                <EditorSubsection title={t.taskEditor.subsections.nodes} description={t.taskEditor.descriptions.nodes}>
+                  <div className="setting-row">
+                    <label className="editor-switch"><input name="merge_default_pinned_nodes" type="checkbox" checked={draft.merge_default_pinned_nodes || false} onChange={(event) => updateDraft("merge_default_pinned_nodes", event.currentTarget.checked)} /> {t.forms.mergeDefaults}</label>
+                    <p className="field-note">{t.taskEditor.descriptions.mergeDefaults}</p>
+                  </div>
+                </EditorSubsection>
+                <EditorSubsection title={t.taskEditor.subsections.rules} description={t.taskEditor.descriptions.rules}>
+                  <div className="setting-row">
+                    <label className="editor-switch"><input name="include_global_rules" type="checkbox" checked={draft.include_global_rules || false} onChange={(event) => updateDraft("include_global_rules", event.currentTarget.checked)} /> {t.forms.includeGlobalRules}</label>
+                    <p className="field-note">{t.taskEditor.descriptions.includeGlobalRules}</p>
+                  </div>
+                  <div className="setting-row">
+                    <label>{t.forms.ruleMergeMode}<select name="rule_merge_mode" value={draft.rule_merge_mode || "custom_first"} onChange={(event) => updateDraft("rule_merge_mode", event.currentTarget.value as RuleMergeMode)}>{ruleMergeOptions(t)}</select></label>
+                    <p className="field-note">{t.taskEditor.descriptions.ruleMergeMode}</p>
+                  </div>
+                  <div className="setting-row">
+                    <label>{t.forms.finalRulePolicy}<input name="final_rule_policy" value={draft.final_rule_policy || ""} onChange={(event) => updateDraft("final_rule_policy", event.currentTarget.value)} placeholder={t.placeholders.finalRulePolicy} /></label>
+                    <p className="field-note">{t.taskEditor.descriptions.finalRulePolicy}</p>
+                  </div>
+                </EditorSubsection>
+                <EditorSubsection title={t.taskEditor.subsections.vless} description={t.taskEditor.descriptions.vless}>
+                  <div className="setting-row">
+                    <label>{t.forms.vlessRelayMode}<select name="vless_relay_mode" value={draft.vless_relay_mode || "global"} onChange={(event) => updateDraft("vless_relay_mode", event.currentTarget.value as VLESSRelayMode)}>{vlessRelayModeOptions(t)}</select></label>
+                    <p className="field-note">{t.taskEditor.descriptions.vless}</p>
+                  </div>
+                </EditorSubsection>
+              </div>
+
+              <div className={section === "managed" ? "editor-pane active" : "editor-pane"}>
+                <EditorSubsection title={t.taskEditor.subsections.managedMode}>
+                  <div className="editor-grid">
+                    <label>{t.forms.managedConfigMode}<select name="managed_config_mode" value={managedPreviewValues.ManagedConfigMode} onChange={(event) => updateManagedField("ManagedConfigMode", event.currentTarget.value as TriStateMode, "managed_config_mode")}>{triStateOptions(t.managedConfigModes)}</select></label>
+                    <label>{t.forms.managedConfigStrictMode}<select name="managed_config_strict_mode" value={managedPreviewValues.ManagedConfigStrictMode} onChange={(event) => updateManagedField("ManagedConfigStrictMode", event.currentTarget.value as TriStateMode, "managed_config_strict_mode")}>{triStateOptions(t.managedConfigStrictModes)}</select></label>
+                  </div>
+                </EditorSubsection>
+                <EditorSubsection title={t.taskEditor.subsections.managedURL}>
+                  <div className="editor-grid">
+                    <label>{t.forms.managedConfigURLMode}<select name="managed_config_url_mode" value={managedPreviewValues.ManagedConfigURLMode} onChange={(event) => updateManagedField("ManagedConfigURLMode", event.currentTarget.value as ManagedURLMode, "managed_config_url_mode")}>{managedURLModeOptions(t)}</select></label>
+                    <label>{t.forms.managedConfigCustomURL}<input name="managed_config_custom_url" value={managedPreviewValues.ManagedConfigCustomURL} onChange={(event) => updateManagedField("ManagedConfigCustomURL", event.currentTarget.value, "managed_config_custom_url")} placeholder="https://profiles.example.com/main.conf" /></label>
+                  </div>
+                </EditorSubsection>
+                <EditorSubsection title={t.taskEditor.subsections.managedRefresh}>
+                  <div className="editor-grid">
+                    <label>{t.forms.managedConfigIntervalMode}<select name="managed_config_interval_mode" value={managedPreviewValues.ManagedConfigIntervalMode} onChange={(event) => updateManagedField("ManagedConfigIntervalMode", event.currentTarget.value as ManagedIntervalMode, "managed_config_interval_mode")}>{managedIntervalModeOptions(t)}</select></label>
+                    <label>{t.forms.managedConfigIntervalCustom}<input name="managed_config_interval_seconds" type="number" min="60" value={managedPreviewValues.ManagedConfigIntervalSeconds} onChange={(event) => updateManagedField("ManagedConfigIntervalSeconds", Number(event.currentTarget.value), "managed_config_interval_seconds")} /></label>
+                  </div>
+                </EditorSubsection>
+              </div>
+
+              <div className={section === "custom" ? "editor-pane active" : "editor-pane"}>
+                <EditorSubsection title={t.forms.customRules} description={t.taskEditor.descriptions.customRules}>
+                  <textarea name="custom_rules_text" rows={7} value={draft.custom_rules_text || ""} onChange={(event) => updateDraft("custom_rules_text", event.currentTarget.value)} placeholder={t.placeholders.customRules} />
+                </EditorSubsection>
+                <EditorSubsection title={t.forms.customGroups} description={t.taskEditor.descriptions.customGroups}>
+                  <PolicyGroupEditor value={draft.custom_groups_text || ""} previewContent={previewContent} t={t} onChange={(value) => updateDraft("custom_groups_text", value)} />
+                </EditorSubsection>
+              </div>
+            </div>
+
+            <aside className="task-editor-aside">
+              {asideMode === "basic" && (
+                <EditorSummaryCard title={t.taskEditor.summaryTitle}>
+                  <SummaryList items={[
+                    [t.taskEditor.taskStatus, status.label],
+                    [t.taskEditor.outputType, `${task.InputType} ${t.taskList.route} ${task.OutputType}`],
+                    [t.forms.refreshSeconds, String(task.RefreshIntervalSeconds)],
+                    [t.taskList.copy, absoluteSubscriptionURL(task.SubscriptionURL)],
+                  ]} />
+                </EditorSummaryCard>
+              )}
+              {asideMode === "conversion" && (
+                <EditorSummaryCard title={t.taskEditor.summaryTitle}>
+                  <SummaryList items={[
+                    [t.forms.mergeDefaults, draftMergeDefaultPinnedNodes ? t.taskList.enabled : t.taskList.disabled],
+                    [t.forms.includeGlobalRules, draftIncludeGlobalRules ? t.taskList.enabled : t.taskList.disabled],
+                    [t.forms.ruleMergeMode, t.ruleMergeModes[draftRuleMergeMode]],
+                    [t.forms.finalRulePolicy, draftFinalRulePolicy || t.taskEditor.autoFinalPolicy],
+                    [t.forms.vlessRelayMode, t.vlessRelayModes[draftVLESSRelayMode]],
+                  ]} />
+                </EditorSummaryCard>
+              )}
+              {asideMode === "managed" && (
+                <>
+                  <EditorSummaryCard title={t.taskEditor.summaryTitle}>
+                    <SummaryList items={[
+                      [t.taskEditor.managedState, managedModeLabel],
+                      [t.forms.managedConfigURLMode, t.managedConfigURLModes[managedPreviewValues.ManagedConfigURLMode]],
+                      [t.forms.managedConfigIntervalMode, t.managedConfigIntervalModes[managedPreviewValues.ManagedConfigIntervalMode]],
+                      [t.forms.managedConfigStrictMode, t.managedConfigStrictModes[managedPreviewValues.ManagedConfigStrictMode]],
+                    ]} />
+                  </EditorSummaryCard>
+                  <EditorSummaryCard title={t.taskEditor.previewTitle}>
+                    <pre className="inline-preview">{managedConfigPreview}</pre>
+                    {managedConfigPreview === "MANAGED-CONFIG disabled" && (
+                      <>
+                        <h4>{t.taskEditor.enabledPreviewTitle}</h4>
+                        <pre className="inline-preview">{managedConfigEnabledPreview}</pre>
+                      </>
+                    )}
+                  </EditorSummaryCard>
+                </>
+              )}
+              {asideMode === "custom" && (
+                <EditorSummaryCard title={t.taskEditor.summaryTitle}>
+                  <SummaryList items={[
+                    [t.forms.customRules, String(lineCount(draft.custom_rules_text || ""))],
+                    [t.forms.customGroups, String(lineCount(draft.custom_groups_text || ""))],
+                    [t.forms.ruleMergeMode, t.ruleMergeModes[draftRuleMergeMode]],
+                  ]} />
+                </EditorSummaryCard>
+              )}
+            </aside>
+          </section>
+
+          <footer className="task-editor-footer">
+            <button type="button" className="secondary-button" onClick={() => setEditing(false)}><X size={15} /> {t.forms.cancel}</button>
+            <button disabled={busy}><Save size={15} /> {busy ? t.saving : t.forms.save}</button>
+          </footer>
         </form>
       )}
     </div>
   );
+}
+
+function taskEditorSections(t: typeof translations[Language]): Array<{ id: TaskEditorSection; label: string }> {
+  return (["basic", "conversion", "managed", "custom"] as TaskEditorSection[]).map((id) => ({
+    id,
+    label: t.taskEditor.sections[id],
+  }));
+}
+
+function EditorSummaryCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="editor-summary-card">
+      <h4>{title}</h4>
+      {children}
+    </section>
+  );
+}
+
+function SummaryList({ items }: { items: Array<[string, string]> }) {
+  return (
+    <div className="summary-list">
+      {items.map(([label, value]) => (
+        <div key={label}><span>{label}</span><strong>{value}</strong></div>
+      ))}
+    </div>
+  );
+}
+
+function PolicyGroupEditor({ value, previewContent, t, onChange }: { value: string; previewContent: string; t: typeof translations[Language]; onChange: (value: string) => void }) {
+  const parsedGroups = React.useMemo(() => parsePolicyGroupsText(value), [value]);
+  const nodeCandidates = React.useMemo(() => parseProxyNodeCandidates(previewContent), [previewContent]);
+  const [advancedMode, setAdvancedMode] = React.useState(() => Boolean(value.trim() && parsedGroups.length === 0));
+  const [groups, setGroups] = React.useState<PolicyGroup[]>(() => parsedGroups);
+  const [batchMembers, setBatchMembers] = React.useState("");
+  const [targetGroupID, setTargetGroupID] = React.useState(() => parsedGroups[0]?.id || "");
+  const [selectorGroupID, setSelectorGroupID] = React.useState("");
+  const lastStructuredValue = React.useRef(policyGroupsText(groups));
+
+  React.useEffect(() => {
+    if (value === lastStructuredValue.current) return;
+    const next = parsePolicyGroupsText(value);
+    if (next.length) {
+      setGroups(next);
+      setTargetGroupID((current) => next.some((group) => group.id === current) ? current : next[0].id);
+      lastStructuredValue.current = value;
+      setAdvancedMode(false);
+    } else if (value.trim()) {
+      setAdvancedMode(true);
+    }
+  }, [value]);
+
+  function commit(nextGroups: PolicyGroup[]) {
+    const nextValue = policyGroupsText(nextGroups);
+    lastStructuredValue.current = nextValue;
+    setGroups(nextGroups);
+    setTargetGroupID((current) => nextGroups.some((group) => group.id === current) ? current : (nextGroups[0]?.id || ""));
+    onChange(nextValue);
+  }
+
+  function updateGroup(id: string, patch: Partial<PolicyGroup>) {
+    commit(groups.map((group) => group.id === id ? { ...group, ...patch } : group));
+  }
+
+  function addGroup(type: PolicyGroupType) {
+    const nextGroup = createPolicyGroup(type);
+    commit([...groups, nextGroup]);
+    setTargetGroupID(nextGroup.id);
+  }
+
+  function removeGroup(id: string) {
+    commit(groups.filter((group) => group.id !== id));
+  }
+
+  function addBatchMembers(group: PolicyGroup) {
+    const nextMembers = [...group.members, ...membersFromText(batchMembers)];
+    setBatchMembers("");
+    updateGroup(group.id, { members: nextMembers });
+  }
+
+  const targetGroup = groups.find((group) => group.id === targetGroupID) || groups[0];
+  const selectorGroup = groups.find((group) => group.id === selectorGroupID);
+  const generatedPreview = policyGroupsText(groups);
+
+  if (advancedMode) {
+    return (
+      <div className="policy-editor">
+        <div className="policy-editor-toolbar">
+          <div>
+            <strong>{t.policyGroups.advancedTitle}</strong>
+            <span>{t.policyGroups.advancedHint}</span>
+          </div>
+          <button type="button" className="secondary-button" onClick={() => setAdvancedMode(false)}>{t.policyGroups.structuredMode}</button>
+        </div>
+        <textarea name="custom_groups_text" rows={8} value={value} onChange={(event) => onChange(event.currentTarget.value)} placeholder={t.placeholders.customGroups} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="policy-editor">
+      <div className="policy-editor-toolbar">
+        <div>
+          <strong>{t.policyGroups.structuredTitle}</strong>
+          <span>{t.policyGroups.structuredHint}</span>
+        </div>
+        <button type="button" className="secondary-button" onClick={() => setAdvancedMode(true)}>{t.policyGroups.advancedMode}</button>
+      </div>
+
+      <div className="policy-editor-grid">
+        <div className="policy-group-list">
+          {groups.map((group, index) => (
+            <section className="policy-group-card" key={group.id}>
+              <header>
+                <div>
+                  <span>{t.policyGroups.groupLabel} {index + 1}</span>
+                  <strong>{group.name || t.policyGroups.unnamed}</strong>
+                </div>
+                <button type="button" className="secondary-button icon-button" onClick={() => removeGroup(group.id)} aria-label={t.policyGroups.removeGroup}><Trash2 size={15} /></button>
+              </header>
+              <div className="editor-grid">
+                <label>{t.policyGroups.name}<input value={group.name} onChange={(event) => updateGroup(group.id, { name: event.currentTarget.value })} /></label>
+                <label>{t.policyGroups.type}<select value={group.type} onChange={(event) => updateGroup(group.id, { type: event.currentTarget.value as PolicyGroupType })}>{policyGroupTypeOptions(t)}</select></label>
+              </div>
+              {group.type === "smart" && (
+                <label className="editor-switch"><input type="checkbox" checked={group.includeAllProxies} onChange={(event) => updateGroup(group.id, { includeAllProxies: event.currentTarget.checked })} /> {t.policyGroups.includeAllProxies}</label>
+              )}
+              <label>{t.policyGroups.members}<textarea rows={5} value={group.members.join("\n")} onChange={(event) => updateGroup(group.id, { members: membersFromText(event.currentTarget.value) })} placeholder={t.policyGroups.membersPlaceholder} /></label>
+              <button type="button" className="secondary-button" onClick={() => setSelectorGroupID(group.id)}>{t.policyGroups.selectMembers}</button>
+              <pre className="inline-preview policy-line-preview">{policyGroupLine(group) || t.policyGroups.emptyPreview}</pre>
+            </section>
+          ))}
+          {!groups.length && <p className="policy-empty">{t.policyGroups.emptyState}</p>}
+          <div className="policy-add-row">
+            {(["smart", "select", "url-test", "fallback", "load-balance"] as PolicyGroupType[]).map((type) => (
+              <button type="button" className="secondary-button" key={type} onClick={() => addGroup(type)}><Plus size={14} /> {t.policyGroupTypes[type]}</button>
+            ))}
+          </div>
+        </div>
+
+        <aside className="policy-helper">
+          <h4>{t.policyGroups.batchTitle}</h4>
+          <p>{t.policyGroups.batchHint}</p>
+          <label>{t.policyGroups.batchTarget}<select value={targetGroup?.id || ""} onChange={(event) => setTargetGroupID(event.currentTarget.value)} disabled={!groups.length}>
+            {groups.map((group, index) => (
+              <option key={group.id} value={group.id}>{group.name || `${t.policyGroups.groupLabel} ${index + 1}`}</option>
+            ))}
+          </select></label>
+          <textarea rows={6} value={batchMembers} onChange={(event) => setBatchMembers(event.currentTarget.value)} placeholder={t.policyGroups.batchPlaceholder} />
+          <button type="button" disabled={!targetGroup || !batchMembers.trim()} onClick={() => targetGroup && addBatchMembers(targetGroup)}><Plus size={14} /> {t.policyGroups.addToTargetGroup}</button>
+          <h4>{t.policyGroups.generatedTitle}</h4>
+          <pre className="inline-preview">{generatedPreview || t.policyGroups.emptyPreview}</pre>
+        </aside>
+      </div>
+      {selectorGroup && (
+        <PolicyMemberSelector
+          group={selectorGroup}
+          candidates={nodeCandidates}
+          t={t}
+          onClose={() => setSelectorGroupID("")}
+          onAppend={(members) => {
+            updateGroup(selectorGroup.id, { members: mergeMembers(selectorGroup.members, members) });
+            setSelectorGroupID("");
+          }}
+          onReplace={(members) => {
+            updateGroup(selectorGroup.id, { members });
+            setSelectorGroupID("");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PolicyMemberSelector({
+  group,
+  candidates,
+  t,
+  onClose,
+  onAppend,
+  onReplace,
+}: {
+  group: PolicyGroup;
+  candidates: ProxyNodeCandidate[];
+  t: typeof translations[Language];
+  onClose: () => void;
+  onAppend: (members: string[]) => void;
+  onReplace: (members: string[]) => void;
+}) {
+  const [query, setQuery] = React.useState("");
+  const [selected, setSelected] = React.useState<string[]>([]);
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleCandidates = candidates.filter((candidate) => candidate.name.toLowerCase().includes(normalizedQuery));
+  const regularNodes = visibleCandidates.filter((candidate) => candidate.category === "regular");
+  const infoNodes = visibleCandidates.filter((candidate) => candidate.category === "subscription_info");
+
+  function toggle(name: string) {
+    setSelected((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
+  }
+
+  function selectRegularNodes() {
+    setSelected((current) => mergeMembers(current, regularNodes.map((node) => node.name)));
+  }
+
+  return (
+    <div className="policy-member-overlay" role="dialog" aria-modal="true" aria-label={t.policyGroups.memberSelectorTitle}>
+      <section className="policy-member-dialog">
+        <header>
+          <div>
+            <span>{t.policyGroups.memberSelectorTitle}</span>
+            <h4>{group.name || t.policyGroups.unnamed}</h4>
+          </div>
+          <button type="button" className="secondary-button icon-button" onClick={onClose} aria-label={t.forms.cancel}><X size={15} /></button>
+        </header>
+        <div className="policy-member-tools">
+          <label>{t.policyGroups.searchMembers}<input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t.policyGroups.searchMembersPlaceholder} /></label>
+          <button type="button" className="secondary-button" disabled={!regularNodes.length} onClick={selectRegularNodes}>{t.policyGroups.selectRegularNodes}</button>
+        </div>
+        {!candidates.length && <p className="policy-empty">{t.policyGroups.noPreviewNodes}</p>}
+        {candidates.length > 0 && (
+          <div className="policy-member-list">
+            <PolicyMemberGroup title={t.policyGroups.regularNodes} emptyText={t.policyGroups.noMatchingNodes} nodes={regularNodes} selected={selected} onToggle={toggle} />
+            <PolicyMemberGroup title={t.policyGroups.subscriptionInfoNodes} emptyText={t.policyGroups.noMatchingNodes} nodes={infoNodes} selected={selected} onToggle={toggle} />
+          </div>
+        )}
+        <footer>
+          <span>{t.policyGroups.selectedCount.replace("{count}", String(selected.length))}</span>
+          <button type="button" className="secondary-button" onClick={onClose}>{t.forms.cancel}</button>
+          <button type="button" disabled={!selected.length} onClick={() => onReplace(selected)}>{t.policyGroups.replaceSelected}</button>
+          <button type="button" disabled={!selected.length} onClick={() => onAppend(selected)}>{t.policyGroups.appendSelected}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function PolicyMemberGroup({ title, emptyText, nodes, selected, onToggle }: { title: string; emptyText: string; nodes: ProxyNodeCandidate[]; selected: string[]; onToggle: (name: string) => void }) {
+  return (
+    <section className="policy-member-group">
+      <h5>{title}</h5>
+      {nodes.length ? nodes.map((node) => (
+        <label key={node.name} className="policy-member-option">
+          <input type="checkbox" checked={selected.includes(node.name)} onChange={() => onToggle(node.name)} />
+          <span>{node.name}</span>
+        </label>
+      )) : <p>{emptyText}</p>}
+    </section>
+  );
+}
+
+function mergeMembers(current: string[], next: string[]) {
+  return [...current, ...next].filter((member, index, members) => member.trim() && members.indexOf(member) === index);
+}
+
+function policyGroupTypeOptions(t: typeof translations[Language]) {
+  return (["smart", "select", "url-test", "fallback", "load-balance"] as PolicyGroupType[]).map((type) => (
+    <option key={type} value={type}>{t.policyGroupTypes[type]}</option>
+  ));
+}
+
+function lineCount(value: string) {
+  return value.trim() ? value.trim().split(/\r?\n/).length : 0;
+}
+
+function EditorSubsection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section className="editor-subsection">
+      <header>
+        <h4>{title}</h4>
+        {description && <p>{description}</p>}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function initialManagedPreviewValues(task: Task): ManagedPreviewValues {
+  return {
+    ManagedConfigMode: task.ManagedConfigMode || "global",
+    ManagedConfigURLMode: task.ManagedConfigURLMode === "custom" ? "custom" : "task_subscription",
+    ManagedConfigCustomURL: task.ManagedConfigCustomURL || "",
+    ManagedConfigIntervalMode: task.ManagedConfigIntervalMode || "global",
+    ManagedConfigIntervalSeconds: task.ManagedConfigIntervalSeconds || 86400,
+    ManagedConfigStrictMode: task.ManagedConfigStrictMode || "global",
+  };
+}
+
+function taskDraftInput(task: Task): TaskUpdateInput {
+  return {
+    name: task.Name,
+    source_url: task.SourceURL,
+    refresh_interval_seconds: task.RefreshIntervalSeconds || 3600,
+    enabled: task.Enabled,
+    merge_default_pinned_nodes: task.MergeDefaultPinnedNodes,
+    include_global_rules: task.IncludeGlobalRules,
+    custom_rules_text: task.CustomRulesText || "",
+    rule_merge_mode: task.RuleMergeMode || "custom_first",
+    final_rule_policy: task.FinalRulePolicy || "",
+    custom_groups_text: task.CustomGroupsText || "",
+    vless_relay_mode: task.VLESSRelayMode || "global",
+    managed_config_mode: task.ManagedConfigMode || "global",
+    managed_config_url_mode: task.ManagedConfigURLMode === "custom" ? "custom" : "task_subscription",
+    managed_config_custom_url: task.ManagedConfigCustomURL || "",
+    managed_config_interval_mode: task.ManagedConfigIntervalMode || "global",
+    managed_config_interval_seconds: task.ManagedConfigIntervalSeconds || 86400,
+    managed_config_strict_mode: task.ManagedConfigStrictMode || "global",
+  };
 }
 
 function ruleMergeOptions(t: typeof translations[Language]) {
@@ -587,7 +1078,7 @@ function vlessRelayModeOptions(t: typeof translations[Language]) {
 }
 
 function managedURLModeOptions(t: typeof translations[Language]) {
-  return (["global", "task_subscription", "custom"] as ManagedURLMode[]).map((mode) => (
+  return taskManagedURLModes().map((mode) => (
     <option key={mode} value={mode}>{t.managedConfigURLModes[mode]}</option>
   ));
 }
@@ -612,17 +1103,6 @@ function managedIntervalPresetOptions(t: typeof translations[Language]) {
 
 function intervalPresetValue(value: number) {
   return [3600, 21600, 43200, 86400].includes(value) ? String(value) : "custom";
-}
-
-function managedHeaderPreview(task: Task, defaults: ManagedConfigDefaults) {
-  const mode = task.ManagedConfigMode || "global";
-  const enabled = mode === "enabled" || (mode === "global" && defaults.Enabled);
-  if (!enabled) return "MANAGED-CONFIG disabled";
-  const urlMode = task.ManagedConfigURLMode === "global" ? defaults.URLMode : task.ManagedConfigURLMode;
-  const url = urlMode === "custom" ? (task.ManagedConfigCustomURL || defaults.CustomURL || "<custom-url>") : absoluteSubscriptionURL(task.SubscriptionURL);
-  const interval = task.ManagedConfigIntervalMode === "custom" ? task.ManagedConfigIntervalSeconds : defaults.IntervalSeconds;
-  const strict = task.ManagedConfigStrictMode === "enabled" || (task.ManagedConfigStrictMode === "global" && defaults.Strict);
-  return `#!MANAGED-CONFIG ${url} interval=${interval || 86400} strict=${strict}`;
 }
 
 function taskStatus(task: Task, busy: boolean, t: typeof translations[Language]) {
@@ -661,10 +1141,7 @@ function NodeList({ nodes, t }: { nodes: PinnedNode[]; t: typeof translations[La
 }
 
 function absoluteSubscriptionURL(url: string) {
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
-  }
-  return `${location.origin}${url.startsWith("/") ? "" : "/"}${url}`;
+  return buildAbsoluteSubscriptionURL(url, location.origin);
 }
 
 const defaultManagedConfigDefaults: ManagedConfigDefaults = {

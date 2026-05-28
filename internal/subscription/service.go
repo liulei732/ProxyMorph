@@ -58,6 +58,20 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 		log.Printf("subscription task=%d stage=load_task status=error error=%q", taskID, err)
 		return "", err
 	}
+	return s.generateTask(task, relayHost, true)
+}
+
+func (s *Service) GeneratePreviewByTaskID(taskID int64, draft tasks.UpdateInput) (string, error) {
+	task, err := s.loadTask(taskID)
+	if err != nil {
+		log.Printf("subscription task=%d stage=load_task status=error error=%q", taskID, err)
+		return "", err
+	}
+	task = applyDraft(task, draft)
+	return s.generateTask(task, "", false)
+}
+
+func (s *Service) generateTask(task storage.ConversionTask, relayHost string, persist bool) (string, error) {
 	log.Printf("subscription task=%d stage=load_task status=ok source=%q enabled=%t", task.ID, safeSourceLabel(task.SourceURL), task.Enabled)
 	if !task.Enabled {
 		err := fmt.Errorf("task is disabled")
@@ -69,6 +83,9 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	content, err := s.fetch(task.SourceURL)
 	if err != nil {
 		log.Printf("subscription task=%d stage=fetch status=error duration_ms=%d error=%q", task.ID, time.Since(startedAt).Milliseconds(), err)
+		if !persist {
+			return "", err
+		}
 		return s.cachedOrError(task.ID, err)
 	}
 	log.Printf("subscription task=%d stage=fetch status=ok duration_ms=%d bytes=%d", task.ID, time.Since(startedAt).Milliseconds(), len(content))
@@ -76,6 +93,9 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	doc, parseInfo, err := parseSubscription(content)
 	if err != nil {
 		log.Printf("subscription task=%d stage=parse status=error duration_ms=%d error=%q", task.ID, time.Since(parseStartedAt).Milliseconds(), err)
+		if !persist {
+			return "", err
+		}
 		s.recordRun(task.ID, "error", err.Error())
 		return s.cachedOrError(task.ID, err)
 	}
@@ -86,6 +106,9 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	pinned, err := s.effectivePinnedNodes(task)
 	if err != nil {
 		log.Printf("subscription task=%d stage=pinned status=error error=%q", task.ID, err)
+		if !persist {
+			return "", err
+		}
 		s.recordRun(task.ID, "error", err.Error())
 		return s.cachedOrError(task.ID, err)
 	}
@@ -115,6 +138,9 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	if len(doc.Nodes) == 0 {
 		err := fmt.Errorf("subscription contains no Surge 6 compatible proxy nodes; unsupported nodes: %s", unsupportedNodeSummary(unsupported))
 		log.Printf("subscription task=%d stage=render status=error error=%q", task.ID, err)
+		if !persist {
+			return "", err
+		}
 		s.recordRun(task.ID, "error", err.Error())
 		return "", err
 	}
@@ -126,14 +152,24 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	surgeConfig, err := s.surgeConfig(task, relayHost)
 	if err != nil {
 		log.Printf("subscription task=%d stage=surge_config status=error error=%q", task.ID, err)
+		if !persist {
+			return "", err
+		}
 		s.recordRun(task.ID, "error", err.Error())
 		return s.cachedOrError(task.ID, err)
 	}
 	output, err := convert.RenderSurge6WithConfig(doc.Nodes, doc.Groups, doc.Rules, surgeConfig)
 	if err != nil {
 		log.Printf("subscription task=%d stage=render status=error error=%q", task.ID, err)
+		if !persist {
+			return "", err
+		}
 		s.recordRun(task.ID, "error", err.Error())
 		return "", err
+	}
+	if !persist {
+		log.Printf("subscription task=%d stage=render status=ok preview=true nodes=%d groups=%d output_bytes=%d", task.ID, len(doc.Nodes), len(doc.Groups), len(output))
+		return output, nil
 	}
 	if err := s.storeCache(task.ID, output); err != nil {
 		log.Printf("subscription task=%d stage=cache status=error error=%q", task.ID, err)
@@ -142,6 +178,61 @@ func (s *Service) generateByTaskID(taskID int64, relayHost string) (string, erro
 	s.recordRun(task.ID, "success", "")
 	log.Printf("subscription task=%d stage=render status=ok nodes=%d groups=%d output_bytes=%d", task.ID, len(doc.Nodes), len(doc.Groups), len(output))
 	return output, nil
+}
+
+func applyDraft(task storage.ConversionTask, input tasks.UpdateInput) storage.ConversionTask {
+	if input.Name != nil {
+		task.Name = *input.Name
+	}
+	if input.SourceURL != nil {
+		task.SourceURL = *input.SourceURL
+	}
+	if input.RefreshIntervalSeconds != nil && *input.RefreshIntervalSeconds > 0 {
+		task.RefreshIntervalSeconds = *input.RefreshIntervalSeconds
+	}
+	if input.Enabled != nil {
+		task.Enabled = *input.Enabled
+	}
+	if input.MergeDefaultPinnedNodes != nil {
+		task.MergeDefaultPinnedNodes = *input.MergeDefaultPinnedNodes
+	}
+	if input.IncludeGlobalRules != nil {
+		task.IncludeGlobalRules = *input.IncludeGlobalRules
+	}
+	if input.CustomRulesText != nil {
+		task.CustomRulesText = *input.CustomRulesText
+	}
+	if input.RuleMergeMode != nil {
+		task.RuleMergeMode = *input.RuleMergeMode
+	}
+	if input.FinalRulePolicy != nil {
+		task.FinalRulePolicy = strings.TrimSpace(*input.FinalRulePolicy)
+	}
+	if input.CustomGroupsText != nil {
+		task.CustomGroupsText = *input.CustomGroupsText
+	}
+	if input.VLESSRelayMode != nil {
+		task.VLESSRelayMode = *input.VLESSRelayMode
+	}
+	if input.ManagedConfigMode != nil {
+		task.ManagedConfigMode = *input.ManagedConfigMode
+	}
+	if input.ManagedConfigURLMode != nil {
+		task.ManagedConfigURLMode = *input.ManagedConfigURLMode
+	}
+	if input.ManagedConfigCustomURL != nil {
+		task.ManagedConfigCustomURL = strings.TrimSpace(*input.ManagedConfigCustomURL)
+	}
+	if input.ManagedConfigIntervalMode != nil {
+		task.ManagedConfigIntervalMode = *input.ManagedConfigIntervalMode
+	}
+	if input.ManagedConfigIntervalSeconds != nil {
+		task.ManagedConfigIntervalSeconds = *input.ManagedConfigIntervalSeconds
+	}
+	if input.ManagedConfigStrictMode != nil {
+		task.ManagedConfigStrictMode = *input.ManagedConfigStrictMode
+	}
+	return task
 }
 
 func (s *Service) vlessRelayEnabled(task storage.ConversionTask) bool {
@@ -200,7 +291,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 		SELECT id, user_id, name, input_type, output_type, source_url, enabled,
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_error_message,
-			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
+			include_global_rules, custom_rules_text, rule_merge_mode, final_rule_policy, custom_groups_text,
 			vless_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
 			managed_config_interval_mode, managed_config_interval_seconds, managed_config_strict_mode,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
@@ -209,7 +300,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 		&task.ID, &task.UserID, &task.Name, &task.InputType, &task.OutputType, &task.SourceURL,
 		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&task.LastErrorMessage,
-		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.CustomGroupsText,
+		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.FinalRulePolicy, &task.CustomGroupsText,
 		&task.VLESSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,
 		&task.ManagedConfigIntervalMode, &task.ManagedConfigIntervalSeconds, &task.ManagedConfigStrictMode,
 		&task.SubscriptionToken,
@@ -220,6 +311,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 	if task.RuleMergeMode == "" {
 		task.RuleMergeMode = "custom_first"
 	}
+	task.FinalRulePolicy = strings.TrimSpace(task.FinalRulePolicy)
 	task.VLESSRelayMode = normalizeVLESSRelayMode(task.VLESSRelayMode)
 	task.ManagedConfigMode = normalizeTriStateMode(task.ManagedConfigMode)
 	task.ManagedConfigURLMode = normalizeTaskManagedURLMode(task.ManagedConfigURLMode)
@@ -273,9 +365,10 @@ func (s *Service) surgeConfig(task storage.ConversionTask, relayHost string) (co
 	customRules = append(customRules, textLines(task.CustomRulesText)...)
 
 	cfg := convert.SurgeConfig{
-		CustomRules:   customRules,
-		CustomGroups:  textLines(task.CustomGroupsText),
-		RuleMergeMode: task.RuleMergeMode,
+		CustomRules:     customRules,
+		CustomGroups:    textLines(task.CustomGroupsText),
+		RuleMergeMode:   task.RuleMergeMode,
+		FinalRulePolicy: task.FinalRulePolicy,
 	}
 	managed, err := s.effectiveManagedConfig(task, relayHost)
 	if err != nil {

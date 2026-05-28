@@ -16,6 +16,7 @@ type Handler struct {
 
 type SubscriptionGenerator interface {
 	GenerateByTaskID(taskID int64) (string, error)
+	GeneratePreviewByTaskID(taskID int64, draft UpdateInput) (string, error)
 }
 
 func (h Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +109,7 @@ func (h Handler) ServeTask(w http.ResponseWriter, r *http.Request) {
 		h.Delete(w, r, id)
 	case action == "generate" && r.Method == http.MethodPost:
 		h.Generate(w, r, id)
-	case action == "preview" && r.Method == http.MethodGet:
+	case action == "preview" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
 		h.Preview(w, r, id)
 	default:
 		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -156,7 +157,22 @@ func (h Handler) Preview(w http.ResponseWriter, r *http.Request, id int64) {
 		httpapi.Error(w, http.StatusNotFound, "task not found")
 		return
 	}
-	output, err := h.Subscription.GenerateByTaskID(id)
+	var output string
+	var err error
+	if r.Method == http.MethodPost {
+		var input UpdateInput
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if err := validateTaskUpdate(input); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		output, err = h.Subscription.GeneratePreviewByTaskID(id, input)
+	} else {
+		output, err = h.Subscription.GenerateByTaskID(id)
+	}
 	if err != nil {
 		httpapi.Error(w, http.StatusBadGateway, err.Error())
 		return

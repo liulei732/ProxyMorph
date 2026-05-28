@@ -18,5 +18,6 @@ type SurgeConfig struct {
 	CustomRules         []string
 	CustomGroups        []string
 	RuleMergeMode       string
+	FinalRulePolicy     string
 	ManagedConfigHeader string
 }

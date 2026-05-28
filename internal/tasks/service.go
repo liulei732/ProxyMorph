@@ -35,6 +35,7 @@ type UpdateInput struct {
 	IncludeGlobalRules           *bool   `json:"include_global_rules"`
 	CustomRulesText              *string `json:"custom_rules_text"`
 	RuleMergeMode                *string `json:"rule_merge_mode"`
+	FinalRulePolicy              *string `json:"final_rule_policy"`
 	CustomGroupsText             *string `json:"custom_groups_text"`
 	VLESSRelayMode               *string `json:"vless_relay_mode"`
 	ManagedConfigMode            *string `json:"managed_config_mode"`
@@ -134,6 +135,9 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 	if input.RuleMergeMode != nil {
 		task.RuleMergeMode = normalizeRuleMergeMode(*input.RuleMergeMode)
 	}
+	if input.FinalRulePolicy != nil {
+		task.FinalRulePolicy = normalizeFinalRulePolicy(*input.FinalRulePolicy)
+	}
 	if input.CustomGroupsText != nil {
 		task.CustomGroupsText = *input.CustomGroupsText
 	}
@@ -171,13 +175,13 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 		UPDATE conversion_tasks
 		SET name = ?, source_url = ?, refresh_interval_seconds = ?, enabled = ?,
 			merge_default_pinned_nodes = ?, include_global_rules = ?, custom_rules_text = ?,
-			rule_merge_mode = ?, custom_groups_text = ?, vless_relay_mode = ?,
+			rule_merge_mode = ?, final_rule_policy = ?, custom_groups_text = ?, vless_relay_mode = ?,
 			managed_config_mode = ?, managed_config_url_mode = ?, managed_config_custom_url = ?,
 			managed_config_interval_mode = ?, managed_config_interval_seconds = ?, managed_config_strict_mode = ?,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = ? AND id = ?`,
 		task.Name, task.SourceURL, task.RefreshIntervalSeconds, enabled, mergeDefaults,
-		includeGlobalRules, task.CustomRulesText, task.RuleMergeMode, task.CustomGroupsText,
+		includeGlobalRules, task.CustomRulesText, task.RuleMergeMode, task.FinalRulePolicy, task.CustomGroupsText,
 		task.VLESSRelayMode, task.ManagedConfigMode, task.ManagedConfigURLMode, task.ManagedConfigCustomURL,
 		task.ManagedConfigIntervalMode, task.ManagedConfigIntervalSeconds, task.ManagedConfigStrictMode,
 		userID, id,
@@ -222,7 +226,7 @@ func (s *Service) List(userID int64) ([]storage.ConversionTask, error) {
 		SELECT id, user_id, name, input_type, output_type, source_url, enabled,
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
-			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
+			include_global_rules, custom_rules_text, rule_merge_mode, final_rule_policy, custom_groups_text,
 			vless_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
 			managed_config_interval_mode, managed_config_interval_seconds, managed_config_strict_mode,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
@@ -265,7 +269,7 @@ func (s *Service) get(userID, id int64) (storage.ConversionTask, error) {
 		SELECT id, user_id, name, input_type, output_type, source_url, enabled,
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
-			include_global_rules, custom_rules_text, rule_merge_mode, custom_groups_text,
+			include_global_rules, custom_rules_text, rule_merge_mode, final_rule_policy, custom_groups_text,
 			vless_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
 			managed_config_interval_mode, managed_config_interval_seconds, managed_config_strict_mode,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
@@ -502,6 +506,10 @@ func normalizeRuleMergeMode(mode string) string {
 	}
 }
 
+func normalizeFinalRulePolicy(policy string) string {
+	return strings.TrimSpace(policy)
+}
+
 func normalizeVLESSRelayMode(mode string) string {
 	return normalizeTriStateMode(mode)
 }
@@ -576,7 +584,7 @@ func scanTask(row taskScanner) (storage.ConversionTask, error) {
 		&task.ID, &task.UserID, &task.Name, &task.InputType, &task.OutputType, &task.SourceURL,
 		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&lastSuccessAt, &lastErrorAt, &task.LastErrorMessage,
-		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.CustomGroupsText,
+		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.FinalRulePolicy, &task.CustomGroupsText,
 		&task.VLESSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,
 		&task.ManagedConfigIntervalMode, &task.ManagedConfigIntervalSeconds, &task.ManagedConfigStrictMode,
 		&task.SubscriptionToken,
@@ -588,6 +596,7 @@ func scanTask(row taskScanner) (storage.ConversionTask, error) {
 	task.MergeDefaultPinnedNodes = mergeDefaults == 1
 	task.IncludeGlobalRules = includeGlobalRules == 1
 	task.RuleMergeMode = normalizeRuleMergeMode(task.RuleMergeMode)
+	task.FinalRulePolicy = normalizeFinalRulePolicy(task.FinalRulePolicy)
 	task.VLESSRelayMode = normalizeVLESSRelayMode(task.VLESSRelayMode)
 	task.ManagedConfigMode = normalizeTriStateMode(task.ManagedConfigMode)
 	task.ManagedConfigURLMode = normalizeTaskManagedURLMode(task.ManagedConfigURLMode)

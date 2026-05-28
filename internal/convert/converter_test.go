@@ -241,6 +241,24 @@ func TestRenderSurge6UsesFirstGroupForDefaultFinalRule(t *testing.T) {
 	}
 }
 
+func TestRenderSurge6UsesConfiguredFinalRulePolicy(t *testing.T) {
+	out, err := RenderSurge6WithConfig(
+		[]Node{{Name: "Edge", Protocol: "ss", Server: "example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}}},
+		nil,
+		[]string{"DOMAIN,upstream.example,Proxy"},
+		SurgeConfig{FinalRulePolicy: "DIRECT"},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithConfig returned error: %v", err)
+	}
+	if !strings.Contains(out, "DOMAIN,upstream.example,Proxy\nFINAL,DIRECT\n") {
+		t.Fatalf("output should append configured FINAL policy:\n%s", out)
+	}
+	if strings.Contains(out, "FINAL,Proxy") {
+		t.Fatalf("output should not keep default FINAL policy when configured:\n%s", out)
+	}
+}
+
 func TestRenderSurge6WithCustomRulesCustomFirst(t *testing.T) {
 	out, err := RenderSurge6WithConfig(
 		[]Node{{Name: "Edge", Protocol: "ss", Server: "example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}}},
@@ -316,6 +334,47 @@ func TestRenderSurge6WithCustomGroupsAndManagedConfig(t *testing.T) {
 		t.Fatalf("managed config header should be first line:\n%s", out)
 	}
 	assertOrder(t, out, "Auto = select, Edge", "Manual = select, Auto, DIRECT", "FINAL,Auto")
+}
+
+func TestRenderSurge6CustomGroupReplacesSameNamedGeneratedGroup(t *testing.T) {
+	out, err := RenderSurge6WithConfig(
+		[]Node{
+			{Name: "美国A-线路1 | TCP", Protocol: "ss", Server: "a.example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}},
+			{Name: "美国A-线路2+|+TCP", Protocol: "ss", Server: "b.example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}},
+		},
+		nil,
+		nil,
+		SurgeConfig{CustomGroups: []string{`Proxy = smart, "美国A-线路1 | TCP", 美国A-线路2+|+TCP, include-all-proxies=1`}},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithConfig returned error: %v", err)
+	}
+	if strings.Contains(out, "Proxy = select") {
+		t.Fatalf("custom Proxy group should replace generated Proxy group, got:\n%s", out)
+	}
+	if count := strings.Count(out, "Proxy = smart"); count != 1 {
+		t.Fatalf("expected exactly one custom Proxy smart group, got %d:\n%s", count, out)
+	}
+	assertOrder(t, out, `Proxy = smart, "美国A-线路1 | TCP", 美国A-线路2+|+TCP, include-all-proxies=1`, "FINAL,Proxy")
+}
+
+func TestRenderSurge6CustomGroupReplacesSameNamedUpstreamGroup(t *testing.T) {
+	out, err := RenderSurge6WithConfig(
+		[]Node{{Name: "Edge", Protocol: "ss", Server: "example.com", Port: 8388, Params: map[string]string{"cipher": "aes-256-gcm", "password": "secret"}}},
+		[]Group{{Name: "Proxy", Type: "select", Proxies: []string{"Edge"}}},
+		nil,
+		SurgeConfig{CustomGroups: []string{"Proxy = smart, Edge, include-all-proxies=1"}},
+	)
+	if err != nil {
+		t.Fatalf("RenderSurge6WithConfig returned error: %v", err)
+	}
+	if strings.Contains(out, "Proxy = select") {
+		t.Fatalf("custom Proxy group should replace upstream Proxy group, got:\n%s", out)
+	}
+	if count := strings.Count(out, "Proxy = smart"); count != 1 {
+		t.Fatalf("expected exactly one custom Proxy smart group, got %d:\n%s", count, out)
+	}
+	assertOrder(t, out, "Proxy = smart, Edge, include-all-proxies=1", "FINAL,Proxy")
 }
 
 func assertOrder(t *testing.T, text string, values ...string) {

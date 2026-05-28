@@ -11,6 +11,7 @@ import (
 
 	"github.com/liulei/proxymorph/internal/config"
 	"github.com/liulei/proxymorph/internal/storage"
+	"github.com/liulei/proxymorph/internal/tasks"
 )
 
 func TestGenerateMergesPinnedNodes(t *testing.T) {
@@ -536,6 +537,76 @@ func TestGenerateCanExcludeGlobalRuleConfig(t *testing.T) {
 	assertSubscriptionOrder(t, output, "DOMAIN,upstream.example,Proxy", "DOMAIN,task.example,DIRECT", "FINAL,Proxy")
 	if strings.Contains(output, "global.example") {
 		t.Fatalf("global rule should be excluded:\n%s", output)
+	}
+}
+
+func TestGeneratePreviewAppliesDraftWithoutSavingTask(t *testing.T) {
+	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\nrules:\n  - DOMAIN,upstream.example,Proxy\n"
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/clash.yaml")
+	draftRule := "DOMAIN,draft.example,DIRECT"
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	output, err := service.GeneratePreviewByTaskID(1, tasks.UpdateInput{CustomRulesText: &draftRule})
+	if err != nil {
+		t.Fatalf("GeneratePreviewByTaskID returned error: %v", err)
+	}
+	if !strings.Contains(output, "DOMAIN,draft.example,DIRECT") {
+		t.Fatalf("draft rule missing from preview:\n%s", output)
+	}
+
+	savedOutput, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if strings.Contains(savedOutput, "DOMAIN,draft.example,DIRECT") {
+		t.Fatalf("draft rule was persisted unexpectedly:\n%s", savedOutput)
+	}
+}
+
+func TestGeneratePreviewAppliesDraftFinalRulePolicyWithoutSavingTask(t *testing.T) {
+	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\nrules:\n  - DOMAIN,upstream.example,Proxy\n"
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/clash.yaml")
+	draftFinal := "DIRECT"
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	output, err := service.GeneratePreviewByTaskID(1, tasks.UpdateInput{FinalRulePolicy: &draftFinal})
+	if err != nil {
+		t.Fatalf("GeneratePreviewByTaskID returned error: %v", err)
+	}
+	if !strings.Contains(output, "DOMAIN,upstream.example,Proxy\nFINAL,DIRECT\n") {
+		t.Fatalf("draft final policy missing from preview:\n%s", output)
+	}
+
+	savedOutput, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if strings.Contains(savedOutput, "FINAL,DIRECT") {
+		t.Fatalf("draft final policy was persisted unexpectedly:\n%s", savedOutput)
 	}
 }
 

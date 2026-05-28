@@ -29,6 +29,7 @@ type ConversionTask struct {
 	IncludeGlobalRules           bool
 	CustomRulesText              string
 	RuleMergeMode                string
+	FinalRulePolicy              string
 	CustomGroupsText             string
 	VLESSRelayMode               string
 	ManagedConfigMode            string

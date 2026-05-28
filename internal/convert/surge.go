@@ -93,20 +93,27 @@ func renderSurge6(nodes []Node, groups []Group, rules []string, cfg SurgeConfig,
 		b.WriteString("\n")
 	}
 	b.WriteString("\n[Proxy Group]\n")
+	customGroups := normalizeLines(cfg.CustomGroups)
+	customGroupNames := policyGroupNames(customGroups)
 	if len(groups) == 0 {
 		names := make([]string, 0, len(nodes))
 		for _, node := range nodes {
 			names = append(names, node.Name)
 		}
-		b.WriteString("Proxy = select")
-		if len(names) > 0 {
-			b.WriteString(", ")
-			b.WriteString(strings.Join(names, ", "))
+		if _, replaced := customGroupNames["Proxy"]; !replaced {
+			b.WriteString("Proxy = select")
+			if len(names) > 0 {
+				b.WriteString(", ")
+				b.WriteString(strings.Join(names, ", "))
+			}
+			b.WriteString("\n")
 		}
-		b.WriteString("\n")
 	} else {
 		defaultPolicy = groups[0].Name
 		for _, group := range groups {
+			if _, replaced := customGroupNames[group.Name]; replaced {
+				continue
+			}
 			b.WriteString(group.Name)
 			b.WriteString(" = ")
 			b.WriteString(group.Type)
@@ -117,16 +124,43 @@ func renderSurge6(nodes []Node, groups []Group, rules []string, cfg SurgeConfig,
 			b.WriteString("\n")
 		}
 	}
-	for _, group := range normalizeLines(cfg.CustomGroups) {
+	for _, group := range customGroups {
 		b.WriteString(group)
 		b.WriteString("\n")
 	}
 	b.WriteString("\n[Rule]\n")
-	for _, rule := range ensureFinalRule(mergeRules(rules, cfg.CustomRules, cfg.RuleMergeMode), defaultPolicy) {
+	finalPolicy := strings.TrimSpace(cfg.FinalRulePolicy)
+	if finalPolicy == "" {
+		finalPolicy = defaultPolicy
+	}
+	for _, rule := range ensureFinalRule(mergeRules(rules, cfg.CustomRules, cfg.RuleMergeMode), finalPolicy) {
 		b.WriteString(rule)
 		b.WriteString("\n")
 	}
 	return b.String(), nil
+}
+
+func policyGroupNames(lines []string) map[string]struct{} {
+	names := make(map[string]struct{}, len(lines))
+	for _, line := range lines {
+		name, ok := policyGroupName(line)
+		if ok {
+			names[name] = struct{}{}
+		}
+	}
+	return names
+}
+
+func policyGroupName(line string) (string, bool) {
+	name, _, ok := strings.Cut(line, "=")
+	if !ok {
+		return "", false
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", false
+	}
+	return name, true
 }
 
 func mergeRules(upstreamRules, customRules []string, mode string) []string {

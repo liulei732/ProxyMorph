@@ -30,4 +30,17 @@ describe("i18n", () => {
     assert.equal(translations.zh.managedConfigModes.global, "跟随全局");
     assert.equal(translations.en.managedConfigModes.global, "Follow global");
   });
+
+  it("translates task editor sections", () => {
+    assert.equal(translations.zh.taskEditor.sections.basic, "基础配置");
+    assert.equal(translations.zh.taskEditor.sections.conversion, "转换配置");
+    assert.equal(translations.zh.taskEditor.subsections.nodes, "节点配置");
+    assert.equal(translations.zh.taskEditor.subsections.rules, "规则配置");
+    assert.equal(translations.zh.taskEditor.subsections.vless, "VLESS 配置");
+    assert.equal(translations.zh.forms.finalRulePolicy, "FINAL 策略");
+    assert.equal(translations.zh.taskEditor.autoFinalPolicy, "自动");
+    assert.equal(translations.en.taskEditor.sections.custom, "Custom Rules");
+    assert.equal(translations.en.taskEditor.subsections.rules, "Rule Configuration");
+    assert.equal(translations.en.forms.finalRulePolicy, "FINAL policy");
+  });
 });
