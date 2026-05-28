@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/liulei/proxymorph/internal/config"
@@ -30,6 +32,7 @@ type Service struct {
 	tasks       *tasks.Service
 	vlessRelay  *singbox.Manager
 	relayConfig config.VLESSRelayConfig
+	relayMu     sync.Mutex
 }
 
 func NewService(db *storage.DB, client *http.Client) *Service {
@@ -117,18 +120,22 @@ func (s *Service) generateTask(task storage.ConversionTask, relayHost string, pe
 	if s.vlessRelayEnabled(task) {
 		relayStartedAt := time.Now()
 		s.configureRelayHost(relayHost)
-		doc.Nodes, err = s.vlessRelay.Configure(doc.Nodes)
+		doc.Nodes, err = s.configureTaskVLESSRelays(task.ID, doc.Nodes)
 		if err != nil {
 			log.Printf("subscription task=%d stage=vless_relay status=error duration_ms=%d error=%q", task.ID, time.Since(relayStartedAt).Milliseconds(), err)
 			s.recordRun(task.ID, "error", err.Error())
 			return "", err
 		}
-		if err := s.vlessRelay.Start(); err != nil {
-			log.Printf("subscription task=%d stage=vless_relay_start status=error duration_ms=%d error=%q", task.ID, time.Since(relayStartedAt).Milliseconds(), err)
+		log.Printf("subscription task=%d stage=vless_relay status=ok duration_ms=%d public_host=%q ports=%d-%d", task.ID, time.Since(relayStartedAt).Milliseconds(), s.relayConfig.PublicHost, s.relayConfig.PortStart, s.relayConfig.PortEnd)
+	} else if s.vlessRelay != nil {
+		if err := s.clearTaskVLESSRelays(task.ID); err != nil {
+			log.Printf("subscription task=%d stage=vless_relay_clear status=error error=%q", task.ID, err)
+			if !persist {
+				return "", err
+			}
 			s.recordRun(task.ID, "error", err.Error())
 			return "", err
 		}
-		log.Printf("subscription task=%d stage=vless_relay status=ok duration_ms=%d public_host=%q ports=%d-%d", task.ID, time.Since(relayStartedAt).Milliseconds(), s.relayConfig.PublicHost, s.relayConfig.PortStart, s.relayConfig.PortEnd)
 	}
 	var unsupported []convert.Node
 	doc.Nodes, unsupported = convert.Surge6SupportedNodes(doc.Nodes)
@@ -274,6 +281,222 @@ func (s *Service) configureRelayHost(requestHost string) {
 	}
 	s.relayConfig.PublicHost = host
 	s.vlessRelay = singbox.NewManager(s.relayConfig)
+}
+
+func (s *Service) configureTaskVLESSRelays(taskID int64, nodes []convert.Node) ([]convert.Node, error) {
+	if s.vlessRelay == nil {
+		return nodes, nil
+	}
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	vlessNodes := make([]convert.Node, 0)
+	for _, node := range nodes {
+		if node.Protocol == "vless" {
+			vlessNodes = append(vlessNodes, node)
+		}
+	}
+	ports, err := s.upsertTaskRelayEntries(taskID, vlessNodes)
+	if err != nil {
+		return nil, err
+	}
+	next := make([]convert.Node, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Protocol != "vless" {
+			next = append(next, node)
+			continue
+		}
+		port, ok := ports[node.Name]
+		if !ok {
+			return nil, fmt.Errorf("vless relay port missing for node %q", node.Name)
+		}
+		next = append(next, convert.Node{
+			Name:     node.Name,
+			Protocol: "socks5",
+			Server:   s.relayConfig.PublicHost,
+			Port:     port,
+			Params: map[string]string{
+				"username":       s.relayConfig.Username,
+				"password":       s.relayConfig.Password,
+				"relay_protocol": "vless",
+			},
+			Tags:   node.Tags,
+			Pinned: node.Pinned,
+		})
+	}
+	if err := s.rebuildAndStartVLESSRelayLocked(); err != nil {
+		return nil, err
+	}
+	return next, nil
+}
+
+func (s *Service) clearTaskVLESSRelays(taskID int64) error {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	if _, err := s.db.SQL().Exec(`DELETE FROM vless_relay_entries WHERE task_id = ?`, taskID); err != nil {
+		return err
+	}
+	return s.rebuildAndStartVLESSRelayLocked()
+}
+
+func (s *Service) upsertTaskRelayEntries(taskID int64, nodes []convert.Node) (map[string]int, error) {
+	tx, err := s.db.SQL().Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT node_name, port FROM vless_relay_entries WHERE task_id = ?`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	existing := make(map[string]int)
+	for rows.Next() {
+		var name string
+		var port int
+		if err := rows.Scan(&name, &port); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		existing[name] = port
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	usedRows, err := tx.Query(`SELECT port FROM vless_relay_entries WHERE task_id <> ?`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	used := make(map[int]bool)
+	for usedRows.Next() {
+		var port int
+		if err := usedRows.Scan(&port); err != nil {
+			usedRows.Close()
+			return nil, err
+		}
+		used[port] = true
+	}
+	if err := usedRows.Close(); err != nil {
+		return nil, err
+	}
+	if err := usedRows.Err(); err != nil {
+		return nil, err
+	}
+	keep := make(map[string]bool, len(nodes))
+	ports := make(map[string]int, len(nodes))
+	for _, node := range nodes {
+		if node.Params["uuid"] == "" {
+			return nil, fmt.Errorf("vless node %q uuid is required", node.Name)
+		}
+		keep[node.Name] = true
+		port := existing[node.Name]
+		if port == 0 {
+			port = nextRelayPort(s.relayConfig, used)
+			if port == 0 {
+				return nil, fmt.Errorf("not enough VLESS relay ports: need %d, have %d", len(nodes), s.relayConfig.PortEnd-s.relayConfig.PortStart+1)
+			}
+		}
+		used[port] = true
+		ports[node.Name] = port
+		content, err := json.Marshal(node)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO vless_relay_entries (task_id, node_name, port, node_json, updated_at)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(task_id, node_name) DO UPDATE SET
+				port = excluded.port,
+				node_json = excluded.node_json,
+				updated_at = excluded.updated_at`,
+			taskID, node.Name, port, string(content), time.Now().UTC().Format(time.RFC3339)); err != nil {
+			return nil, err
+		}
+	}
+	for name := range existing {
+		if !keep[name] {
+			if _, err := tx.Exec(`DELETE FROM vless_relay_entries WHERE task_id = ? AND node_name = ?`, taskID, name); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return ports, nil
+}
+
+func nextRelayPort(cfg config.VLESSRelayConfig, used map[int]bool) int {
+	for port := cfg.PortStart; port <= cfg.PortEnd; port++ {
+		if !used[port] {
+			return port
+		}
+	}
+	return 0
+}
+
+func (s *Service) RestoreVLESSRelay() error {
+	if s.vlessRelay == nil {
+		return nil
+	}
+	hasRelays, err := s.hasRestorableVLESSRelays()
+	if err != nil || !hasRelays {
+		return nil
+	}
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	return s.rebuildAndStartVLESSRelayLocked()
+}
+
+func (s *Service) hasRestorableVLESSRelays() (bool, error) {
+	var count int
+	err := s.db.SQL().QueryRow(`
+		SELECT COUNT(*)
+		FROM vless_relay_entries r
+		JOIN conversion_tasks t ON t.id = r.task_id
+		WHERE t.enabled = 1`).Scan(&count)
+	return count > 0, err
+}
+
+func (s *Service) rebuildAndStartVLESSRelayLocked() error {
+	relays, err := s.loadRelayEntries()
+	if err != nil {
+		return err
+	}
+	if err := s.vlessRelay.ConfigureRelays(relays); err != nil {
+		return err
+	}
+	if len(relays) == 0 {
+		return s.vlessRelay.Stop()
+	}
+	return s.vlessRelay.Start()
+}
+
+func (s *Service) loadRelayEntries() ([]singbox.Relay, error) {
+	rows, err := s.db.SQL().Query(`
+		SELECT r.task_id, r.node_name, r.port, r.node_json
+		FROM vless_relay_entries r
+		JOIN conversion_tasks t ON t.id = r.task_id
+		WHERE t.enabled = 1
+		ORDER BY r.port ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	relays := make([]singbox.Relay, 0)
+	for rows.Next() {
+		var relay singbox.Relay
+		var nodeJSON string
+		if err := rows.Scan(&relay.TaskID, &relay.NodeName, &relay.Port, &nodeJSON); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(nodeJSON), &relay.Node); err != nil {
+			return nil, err
+		}
+		relays = append(relays, relay)
+	}
+	return relays, rows.Err()
 }
 
 func (s *Service) Close() error {

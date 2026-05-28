@@ -52,6 +52,21 @@ func (h Handler) Import(w http.ResponseWriter, r *http.Request) {
 	httpapi.JSON(w, http.StatusCreated, imported)
 }
 
+func (h Handler) Batch(w http.ResponseWriter, r *http.Request) {
+	userID := httpapi.UserID(r.Context())
+	var input BatchInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		httpapi.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	affected, err := h.Service.Batch(userID, input)
+	if err != nil {
+		httpapi.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	httpapi.JSON(w, http.StatusOK, map[string]any{"ok": true, "affected": affected})
+}
+
 func (h Handler) ServeNode(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseNodeID(r.URL.Path)
 	if !ok {

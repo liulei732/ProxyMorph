@@ -41,6 +41,10 @@ func New(cfg config.Config, dbPath string) (*App, error) {
 		mux:     http.NewServeMux(),
 	}
 	a.subSvc.SetVLESSRelay(cfg.VLESSRelay)
+	if err := a.subSvc.RestoreVLESSRelay(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	a.routes()
 	return a, nil
 }

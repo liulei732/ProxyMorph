@@ -12,7 +12,7 @@ func TestOpenMigratesSchema(t *testing.T) {
 	}
 	defer db.Close()
 
-	tables := []string{"users", "conversion_tasks", "pinned_nodes", "task_node_overrides", "subscription_tokens", "conversion_runs", "output_cache"}
+	tables := []string{"users", "conversion_tasks", "pinned_nodes", "task_node_overrides", "subscription_tokens", "conversion_runs", "output_cache", "vless_relay_entries"}
 	for _, table := range tables {
 		if !db.HasTableForTest(t, table) {
 			t.Fatalf("expected table %s to exist", table)

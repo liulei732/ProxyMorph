@@ -87,6 +87,14 @@ func (db *DB) Migrate(ctx context.Context) error {
 			content TEXT NOT NULL,
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS vless_relay_entries (
+			task_id INTEGER NOT NULL REFERENCES conversion_tasks(id),
+			node_name TEXT NOT NULL,
+			port INTEGER NOT NULL UNIQUE,
+			node_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (task_id, node_name)
+		)`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.sql.ExecContext(ctx, stmt); err != nil {

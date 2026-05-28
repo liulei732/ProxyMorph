@@ -101,6 +101,14 @@ describe("task editor live summary binding", () => {
     assert.match(source, /onClick=\{\(\) => onDelete\(node\.ID\)\}/);
   });
 
+  it("supports batch node operations from the node list", () => {
+    assert.match(source, /async function batchNodes\(action: NodeBatchAction, ids: number\[\]\)/);
+    assert.match(source, /api\("\/api\/nodes\/batch",\s*\{ method: "POST", body: JSON\.stringify\(\{ action, ids \}\) \}\)/);
+    assert.match(source, /<NodeManagement nodes=\{nodes\}[\s\S]*onBatch=\{batchNodes\}/);
+    assert.match(source, /selectedNodeIDs/);
+    assert.match(source, /toggleVisibleNodes/);
+  });
+
   it("uses the redesigned pinned node management layout", () => {
     assert.match(source, /NodeManagement/);
     assert.match(source, /node-management/);

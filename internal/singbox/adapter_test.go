@@ -251,6 +251,43 @@ func TestManagerReplacesVLESSWithSocks5RelayNode(t *testing.T) {
 	}
 }
 
+func TestManagerConfiguresMultipleTaskRelaysWithoutPortReuse(t *testing.T) {
+	manager := NewManager(config.VLESSRelayConfig{
+		Enabled:    true,
+		PublicHost: "proxy.example.com",
+		ListenHost: "0.0.0.0",
+		PortStart:  19000,
+		PortEnd:    19010,
+		Username:   "relay",
+		Password:   "secret",
+		ConfigPath: filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+
+	if err := manager.ConfigureRelays([]Relay{
+		{TaskID: 1, NodeName: "Task A Edge", Port: 19000, Node: convert.Node{Name: "Task A Edge", Protocol: "vless", Server: "a.example", Port: 443, Params: map[string]string{"uuid": "a"}}},
+		{TaskID: 2, NodeName: "Task B Edge", Port: 19001, Node: convert.Node{Name: "Task B Edge", Protocol: "vless", Server: "b.example", Port: 443, Params: map[string]string{"uuid": "b"}}},
+	}); err != nil {
+		t.Fatalf("ConfigureRelays returned error: %v", err)
+	}
+	configBytes, err := os.ReadFile(manager.cfg.ConfigPath)
+	if err != nil {
+		t.Fatalf("read generated config: %v", err)
+	}
+	configText := string(configBytes)
+	for _, want := range []string{
+		`"tag": "task-1-vless-in-19000"`,
+		`"listen_port": 19000`,
+		`"server": "a.example"`,
+		`"tag": "task-2-vless-in-19001"`,
+		`"listen_port": 19001`,
+		`"server": "b.example"`,
+	} {
+		if !strings.Contains(configText, want) {
+			t.Fatalf("generated config missing %q:\n%s", want, configText)
+		}
+	}
+}
+
 func TestManagerRejectsTooManyVLESSNodes(t *testing.T) {
 	manager := NewManager(config.VLESSRelayConfig{
 		Enabled:    true,

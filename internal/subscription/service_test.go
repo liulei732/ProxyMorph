@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -265,6 +266,235 @@ func TestGenerateDoesNotRelayVLESSWhenTaskFollowsDisabledGlobal(t *testing.T) {
 	_, err := generateVLESSWithRelaySettings(t, false, "global")
 	if err == nil || !strings.Contains(err.Error(), "no Surge 6 compatible proxy nodes") {
 		t.Fatalf("error = %v, want no compatible proxy nodes when task follows disabled global setting", err)
+	}
+}
+
+func TestGenerateRelaysVLESSKeepsMultipleTaskRelays(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedTaskUser(t, db)
+	seedTask(t, db, userID, "https://upstream.example.test/a", 0)
+	if _, err := db.SQL().Exec(`
+		INSERT INTO conversion_tasks (
+			id, user_id, name, input_type, output_type, source_url, enabled,
+			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode
+		) VALUES (2, ?, 'Second', 'clash', 'surge6', 'https://upstream.example.test/b', 1, 3600, 0, 'after_remote')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	seedVLESSRelaySetting(t, db, true)
+	configPath := filepath.Join(t.TempDir(), "sing-box.json")
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		name := "Task A Edge"
+		server := "a.example"
+		if strings.Contains(r.URL.Path, "/b") {
+			name = "Task B Edge"
+			server = "b.example"
+		}
+		uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@" + server + ":443?security=tls&sni=" + server + "&type=tcp#" + url.PathEscape(name)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(base64.StdEncoding.EncodeToString([]byte(uriList)))), Header: make(http.Header)}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  configPath,
+	})
+	defer service.Close()
+
+	firstOutput, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID first returned error: %v", err)
+	}
+	secondOutput, err := service.GenerateByTaskID(2)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID second returned error: %v", err)
+	}
+	if !strings.Contains(firstOutput, "Task A Edge = socks5, proxy.example.test, 19000") {
+		t.Fatalf("first output should use stable first port:\n%s", firstOutput)
+	}
+	if !strings.Contains(secondOutput, "Task B Edge = socks5, proxy.example.test, 19001") {
+		t.Fatalf("second output should use next free port:\n%s", secondOutput)
+	}
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configText := string(configBytes)
+	for _, want := range []string{`"server": "a.example"`, `"listen_port": 19000`, `"server": "b.example"`, `"listen_port": 19001`} {
+		if !strings.Contains(configText, want) {
+			t.Fatalf("sing-box config missing %q:\n%s", want, configText)
+		}
+	}
+}
+
+func TestRestoreVLESSRelayStartsPersistedRelays(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedTaskUser(t, db)
+	seedTask(t, db, userID, "https://upstream.example.test/a", 0)
+	seedVLESSRelaySetting(t, db, true)
+	configPath := filepath.Join(t.TempDir(), "sing-box.json")
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@a.example:443?security=tls&sni=a.example&type=tcp#Task%20A%20Edge"
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(base64.StdEncoding.EncodeToString([]byte(uriList)))), Header: make(http.Header)}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  configPath,
+	})
+	if _, err := service.GenerateByTaskID(1); err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restored := NewService(db, http.DefaultClient)
+	restored.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  configPath,
+	})
+	defer restored.Close()
+	if err := restored.RestoreVLESSRelay(); err != nil {
+		t.Fatalf("RestoreVLESSRelay returned error: %v", err)
+	}
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configText := string(configBytes)
+	if !strings.Contains(configText, `"server": "a.example"`) || !strings.Contains(configText, `"listen_port": 19000`) {
+		t.Fatalf("restored sing-box config missing persisted relay:\n%s", configText)
+	}
+}
+
+func TestRestoreVLESSRelayStartsTaskEnabledRelayWhenGlobalDisabled(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedTaskUser(t, db)
+	seedTask(t, db, userID, "https://upstream.example.test/a", 0)
+	if _, err := db.SQL().Exec(`UPDATE conversion_tasks SET vless_relay_mode = 'enabled' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	seedVLESSRelaySetting(t, db, false)
+	configPath := filepath.Join(t.TempDir(), "sing-box.json")
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@a.example:443?security=tls&sni=a.example&type=tcp#Task%20A%20Edge"
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(base64.StdEncoding.EncodeToString([]byte(uriList)))), Header: make(http.Header)}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  configPath,
+	})
+	if _, err := service.GenerateByTaskID(1); err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restored := NewService(db, http.DefaultClient)
+	restored.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  configPath,
+	})
+	defer restored.Close()
+	if err := restored.RestoreVLESSRelay(); err != nil {
+		t.Fatalf("RestoreVLESSRelay returned error: %v", err)
+	}
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configText := string(configBytes)
+	if !strings.Contains(configText, `"server": "a.example"`) || !strings.Contains(configText, `"listen_port": 19000`) {
+		t.Fatalf("task-enabled relay should restore even when global disabled:\n%s", configText)
+	}
+}
+
+func TestGenerateClearsTaskRelayEntriesWhenRelayDisabled(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedTaskUser(t, db)
+	seedTask(t, db, userID, "https://upstream.example.test/a", 0)
+	seedVLESSRelaySetting(t, db, true)
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@a.example:443?security=tls&sni=a.example&type=tcp#Task%20A%20Edge"
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(base64.StdEncoding.EncodeToString([]byte(uriList)))), Header: make(http.Header)}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+	defer service.Close()
+	if _, err := service.GenerateByTaskID(1); err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if _, err := db.SQL().Exec(`UPDATE conversion_tasks SET vless_relay_mode = 'disabled' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.GenerateByTaskID(1)
+	if err == nil || !strings.Contains(err.Error(), "no Surge 6 compatible proxy nodes") {
+		t.Fatalf("GenerateByTaskID error = %v, want incompatible VLESS", err)
+	}
+	var count int
+	if err := db.SQL().QueryRow(`SELECT COUNT(*) FROM vless_relay_entries WHERE task_id = 1`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("relay entries should be cleared when relay disabled, got %d", count)
 	}
 }
 

@@ -58,6 +58,8 @@ type TaskOutputResponse = {
   error?: string;
 };
 
+type NodeBatchAction = "enable" | "disable" | "delete";
+
 function App() {
   const [loggedIn, setLoggedIn] = React.useState(false);
   const [checkingSession, setCheckingSession] = React.useState(true);
@@ -215,6 +217,28 @@ function App() {
       return;
     }
     notify(t.nodeList.deleted);
+    try {
+      await refresh();
+    } catch {
+      notify(t.refreshFailed);
+    }
+    try {
+      await refreshVisiblePreview("current_preview");
+    } catch {
+      notify(t.preview.loadFailed);
+    }
+  }
+
+  async function batchNodes(action: NodeBatchAction, ids: number[]) {
+    if (ids.length === 0) return;
+    if (action === "delete" && !window.confirm(t.nodeList.confirmBatchDelete.replace("{count}", String(ids.length)))) return;
+    try {
+      await api("/api/nodes/batch", { method: "POST", body: JSON.stringify({ action, ids }) });
+    } catch {
+      notify(t.nodeList.batchFailed);
+      return;
+    }
+    notify(t.nodeList.batchUpdated.replace("{count}", String(ids.length)));
     try {
       await refresh();
     } catch {
@@ -442,7 +466,7 @@ function App() {
         )}
 
         {tab === "nodes" && (
-          <NodeManagement nodes={nodes} t={t} placeholder={t.placeholders.proxyURIs} onImport={importNodes} onDelete={deleteNode} onCopy={notify} importToast={toast} />
+              <NodeManagement nodes={nodes} t={t} placeholder={t.placeholders.proxyURIs} onImport={importNodes} onDelete={deleteNode} onBatch={batchNodes} onCopy={notify} importToast={toast} />
         )}
 
         {tab === "preview" && <section className="panel"><h3>{t.preview.title}</h3><pre>{previewContent || t.preview.empty}</pre></section>}
@@ -1322,13 +1346,18 @@ function formatTime(value: string) {
 
 type NodeFilter = "all" | "enabled" | "disabled";
 
-function NodeManagement({ nodes, t, placeholder, onImport, onDelete, onCopy, importToast }: { nodes: PinnedNode[]; t: typeof translations[Language]; placeholder: string; onImport: (event: React.FormEvent<HTMLFormElement>) => void; onDelete: (id: number) => void; onCopy: (message: string) => void; importToast: string }) {
+function NodeManagement({ nodes, t, placeholder, onImport, onDelete, onBatch, onCopy, importToast }: { nodes: PinnedNode[]; t: typeof translations[Language]; placeholder: string; onImport: (event: React.FormEvent<HTMLFormElement>) => void; onDelete: (id: number) => void; onBatch: (action: NodeBatchAction, ids: number[]) => Promise<void>; onCopy: (message: string) => void; importToast: string }) {
   const [draftText, setDraftText] = React.useState("");
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState<NodeFilter>("all");
+  const [selectedNodeIDs, setSelectedNodeIDs] = React.useState<number[]>([]);
   React.useEffect(() => {
     if (importToast === t.nodeList.imported) setDraftText("");
   }, [importToast, t.nodeList.imported]);
+  React.useEffect(() => {
+    const existing = new Set(nodes.map((node) => node.ID));
+    setSelectedNodeIDs((current) => current.filter((id) => existing.has(id)));
+  }, [nodes]);
   const importPreview = React.useMemo(() => previewNodeImportLines(draftText), [draftText]);
   const protocolCount = new Set(nodes.map((node) => node.Protocol)).size;
   const filteredNodes = nodes.filter((node) => {
@@ -1340,6 +1369,22 @@ function NodeManagement({ nodes, t, placeholder, onImport, onDelete, onCopy, imp
   async function copyNodeName(name: string) {
     await navigator.clipboard.writeText(name);
     onCopy(t.nodeList.copiedName);
+  }
+
+  function toggleNode(id: number) {
+    setSelectedNodeIDs((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  function toggleVisibleNodes() {
+    const visibleIDs = filteredNodes.map((node) => node.ID);
+    const selected = new Set(selectedNodeIDs);
+    const allVisibleSelected = visibleIDs.length > 0 && visibleIDs.every((id) => selected.has(id));
+    setSelectedNodeIDs((current) => allVisibleSelected ? current.filter((id) => !visibleIDs.includes(id)) : Array.from(new Set([...current, ...visibleIDs])));
+  }
+
+  async function applyBatch(action: NodeBatchAction) {
+    await onBatch(action, selectedNodeIDs);
+    setSelectedNodeIDs([]);
   }
 
   return (
@@ -1372,12 +1417,29 @@ function NodeManagement({ nodes, t, placeholder, onImport, onDelete, onCopy, imp
         )}
         <button><Plus size={16} /> {t.forms.importNodes}</button>
       </form>
-      <NodeList nodes={filteredNodes} totalNodes={nodes.length} t={t} query={query} filter={filter} onQueryChange={setQuery} onFilterChange={setFilter} onCopyName={copyNodeName} onDelete={onDelete} />
+      <NodeList
+        nodes={filteredNodes}
+        totalNodes={nodes.length}
+        t={t}
+        query={query}
+        filter={filter}
+        selectedNodeIDs={selectedNodeIDs}
+        onQueryChange={setQuery}
+        onFilterChange={setFilter}
+        onToggleNode={toggleNode}
+        onToggleVisibleNodes={toggleVisibleNodes}
+        onBatch={applyBatch}
+        onCopyName={copyNodeName}
+        onDelete={onDelete}
+      />
     </section>
   );
 }
 
-function NodeList({ nodes, totalNodes, t, query, filter, onQueryChange, onFilterChange, onCopyName, onDelete }: { nodes: PinnedNode[]; totalNodes: number; t: typeof translations[Language]; query: string; filter: NodeFilter; onQueryChange: (value: string) => void; onFilterChange: (value: NodeFilter) => void; onCopyName: (name: string) => void; onDelete: (id: number) => void }) {
+function NodeList({ nodes, totalNodes, t, query, filter, selectedNodeIDs, onQueryChange, onFilterChange, onToggleNode, onToggleVisibleNodes, onBatch, onCopyName, onDelete }: { nodes: PinnedNode[]; totalNodes: number; t: typeof translations[Language]; query: string; filter: NodeFilter; selectedNodeIDs: number[]; onQueryChange: (value: string) => void; onFilterChange: (value: NodeFilter) => void; onToggleNode: (id: number) => void; onToggleVisibleNodes: () => void; onBatch: (action: NodeBatchAction) => void; onCopyName: (name: string) => void; onDelete: (id: number) => void }) {
+  const visibleIDs = nodes.map((node) => node.ID);
+  const allVisibleSelected = visibleIDs.length > 0 && visibleIDs.every((id) => selectedNodeIDs.includes(id));
+  const hasSelection = selectedNodeIDs.length > 0;
   return (
     <section className="panel node-library">
       <div className="node-library-header">
@@ -1388,15 +1450,24 @@ function NodeList({ nodes, totalNodes, t, query, filter, onQueryChange, onFilter
         <span className="badge">{nodes.length}/{totalNodes}</span>
       </div>
       <div className="node-library-tools">
-        <label className="node-search"><Search size={15} /><input value={query} onChange={(event) => onQueryChange(event.currentTarget.value)} placeholder={t.nodeList.search} /></label>
-        <div className="node-filter-tabs">
-          {(["all", "enabled", "disabled"] as NodeFilter[]).map((item) => (
-            <button key={item} type="button" className={filter === item ? "active" : ""} onClick={() => onFilterChange(item)}>{nodeFilterLabel(item, t)}</button>
-          ))}
+        <div className="node-filter-tools">
+          <label className="node-search"><Search size={15} /><input value={query} onChange={(event) => onQueryChange(event.currentTarget.value)} placeholder={t.nodeList.search} /></label>
+          <div className="node-filter-tabs">
+            {(["all", "enabled", "disabled"] as NodeFilter[]).map((item) => (
+              <button key={item} type="button" className={filter === item ? "active" : ""} onClick={() => onFilterChange(item)}>{nodeFilterLabel(item, t)}</button>
+            ))}
+          </div>
+        </div>
+        <div className="node-batch-actions">
+          <span className={hasSelection ? "node-selected-count active" : "node-selected-count"}>{t.nodeList.selectedCount.replace("{count}", String(selectedNodeIDs.length))}</span>
+          <button type="button" className="secondary-button" disabled={!hasSelection} onClick={() => onBatch("enable")}>{t.nodeList.batchEnable}</button>
+          <button type="button" className="secondary-button" disabled={!hasSelection} onClick={() => onBatch("disable")}>{t.nodeList.batchDisable}</button>
+          <button type="button" className="danger-button" disabled={!hasSelection} onClick={() => onBatch("delete")}>{t.nodeList.batchDelete}</button>
         </div>
       </div>
       <div className="node-table">
         <div className="node-table-head">
+          <span><input type="checkbox" checked={allVisibleSelected} onChange={onToggleVisibleNodes} aria-label={t.nodeList.selectVisible} /></span>
           <span>{t.nodeList.title}</span>
           <span>{t.nodeList.protocols}</span>
           <span>{t.nodeList.enabled}</span>
@@ -1405,6 +1476,7 @@ function NodeList({ nodes, totalNodes, t, query, filter, onQueryChange, onFilter
         </div>
         {nodes.length ? nodes.map((node) => (
           <div className="node-table-row" key={node.ID}>
+            <span><input type="checkbox" checked={selectedNodeIDs.includes(node.ID)} onChange={() => onToggleNode(node.ID)} aria-label={node.Name} /></span>
             <div className="node-name-cell">
               <strong><span className={node.Enabled ? "node-dot" : "node-dot disabled"} />{node.Name}</strong>
               <span>{node.Server}:{node.Port}</span>

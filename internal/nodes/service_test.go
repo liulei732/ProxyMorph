@@ -82,6 +82,105 @@ func TestDeleteNodeRemovesOnlyUsersNode(t *testing.T) {
 	}
 }
 
+func TestBatchUpdateEnableDisableAndDeleteOnlyUsersNodes(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	res, err := db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES ('other', 'hash')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherUserID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db)
+	first, err := service.Create(userID, CreateInput{Name: "A", Protocol: "trojan", Server: "a.example.com", Port: 443, Params: map[string]string{"password": "secret"}, Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.Create(userID, CreateInput{Name: "B", Protocol: "trojan", Server: "b.example.com", Port: 443, Params: map[string]string{"password": "secret"}, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := service.Create(otherUserID, CreateInput{Name: "Other", Protocol: "trojan", Server: "other.example.com", Port: 443, Params: map[string]string{"password": "secret"}, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	affected, err := service.Batch(userID, BatchInput{Action: "enable", IDs: []int64{first.ID, other.ID}})
+	if err != nil {
+		t.Fatalf("Batch enable returned error: %v", err)
+	}
+	if affected != 1 {
+		t.Fatalf("affected = %d, want 1", affected)
+	}
+	nodes, err := service.List(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !findNode(t, nodes, first.ID).Enabled {
+		t.Fatalf("first node should be enabled: %#v", nodes)
+	}
+
+	affected, err = service.Batch(userID, BatchInput{Action: "disable", IDs: []int64{first.ID, second.ID}})
+	if err != nil {
+		t.Fatalf("Batch disable returned error: %v", err)
+	}
+	if affected != 2 {
+		t.Fatalf("affected = %d, want 2", affected)
+	}
+	nodes, err = service.List(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if findNode(t, nodes, first.ID).Enabled || findNode(t, nodes, second.ID).Enabled {
+		t.Fatalf("selected nodes should be disabled: %#v", nodes)
+	}
+
+	affected, err = service.Batch(userID, BatchInput{Action: "delete", IDs: []int64{first.ID, other.ID}})
+	if err != nil {
+		t.Fatalf("Batch delete returned error: %v", err)
+	}
+	if affected != 1 {
+		t.Fatalf("affected = %d, want 1", affected)
+	}
+	nodes, err = service.List(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || nodes[0].ID != second.ID {
+		t.Fatalf("only second user's own node should remain: %#v", nodes)
+	}
+	otherNodes, err := service.List(otherUserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(otherNodes) != 1 || otherNodes[0].ID != other.ID {
+		t.Fatalf("other user's node should remain: %#v", otherNodes)
+	}
+}
+
+func TestBatchRejectsInvalidInput(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+
+	if _, err := service.Batch(userID, BatchInput{Action: "archive", IDs: []int64{1}}); err == nil {
+		t.Fatal("Batch should reject unknown actions")
+	}
+	if _, err := service.Batch(userID, BatchInput{Action: "enable"}); err == nil {
+		t.Fatal("Batch should reject empty ids")
+	}
+}
+
 func TestListNodesReturnsEmptySlice(t *testing.T) {
 	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -101,6 +200,17 @@ func TestListNodesReturnsEmptySlice(t *testing.T) {
 	if len(nodes) != 0 {
 		t.Fatalf("unexpected nodes: %#v", nodes)
 	}
+}
+
+func findNode(t *testing.T, nodes []storage.PinnedNode, id int64) storage.PinnedNode {
+	t.Helper()
+	for _, node := range nodes {
+		if node.ID == id {
+			return node
+		}
+	}
+	t.Fatalf("node %d not found in %#v", id, nodes)
+	return storage.PinnedNode{}
 }
 
 func seedUser(t *testing.T, db *storage.DB) int64 {

@@ -3,6 +3,8 @@ package nodes
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/liulei/proxymorph/internal/convert"
 	"github.com/liulei/proxymorph/internal/storage"
@@ -24,6 +26,11 @@ type CreateInput struct {
 	Enabled        bool              `json:"enabled"`
 	DefaultInclude bool              `json:"default_include"`
 	SortOrder      int               `json:"sort_order"`
+}
+
+type BatchInput struct {
+	Action string  `json:"action"`
+	IDs    []int64 `json:"ids"`
 }
 
 func NewService(db *storage.DB) *Service {
@@ -128,6 +135,39 @@ func (s *Service) Delete(userID, id int64) error {
 	return nil
 }
 
+func (s *Service) Batch(userID int64, input BatchInput) (int64, error) {
+	if len(input.IDs) == 0 {
+		return 0, fmt.Errorf("node ids are required")
+	}
+	ids := uniquePositiveIDs(input.IDs)
+	if len(ids) == 0 {
+		return 0, fmt.Errorf("node ids are required")
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, userID)
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	var query string
+	switch input.Action {
+	case "enable":
+		query = fmt.Sprintf(`UPDATE pinned_nodes SET enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id IN (%s)`, strings.Join(placeholders, ","))
+	case "disable":
+		query = fmt.Sprintf(`UPDATE pinned_nodes SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id IN (%s)`, strings.Join(placeholders, ","))
+	case "delete":
+		query = fmt.Sprintf(`DELETE FROM pinned_nodes WHERE user_id = ? AND id IN (%s)`, strings.Join(placeholders, ","))
+	default:
+		return 0, fmt.Errorf("unsupported batch action")
+	}
+	res, err := s.db.SQL().Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (s *Service) EffectiveDefaultNodes(userID int64) ([]convert.Node, error) {
 	rows, err := s.db.SQL().Query(`
 		SELECT name, protocol, server, port, parameters_json, tags_json
@@ -151,6 +191,19 @@ func (s *Service) EffectiveDefaultNodes(userID int64) ([]convert.Node, error) {
 		result = append(result, node)
 	}
 	return result, rows.Err()
+}
+
+func uniquePositiveIDs(ids []int64) []int64 {
+	seen := make(map[int64]bool, len(ids))
+	result := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		result = append(result, id)
+	}
+	return result
 }
 
 type nodeScanner interface {

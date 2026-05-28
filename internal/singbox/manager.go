@@ -25,6 +25,13 @@ type Manager struct {
 	logOutput io.Writer
 }
 
+type Relay struct {
+	TaskID   int64
+	NodeName string
+	Port     int
+	Node     convert.Node
+}
+
 func NewManager(cfg config.VLESSRelayConfig) *Manager {
 	return &Manager{cfg: cfg, logOutput: log.Writer()}
 }
@@ -167,6 +174,33 @@ func (m *Manager) Configure(nodes []convert.Node) ([]convert.Node, error) {
 		return nil, err
 	}
 	return next, nil
+}
+
+func (m *Manager) ConfigureRelays(relays []Relay) error {
+	if !m.cfg.Enabled {
+		return nil
+	}
+	cfg := singBoxConfig{Log: singBoxLog{Level: "warn"}}
+	for _, relay := range relays {
+		if relay.Node.Protocol != "vless" {
+			continue
+		}
+		if relay.Node.Params["uuid"] == "" {
+			return fmt.Errorf("vless node %q uuid is required", relay.Node.Name)
+		}
+		if relay.Port < m.cfg.PortStart || relay.Port > m.cfg.PortEnd {
+			return fmt.Errorf("vless relay port %d is outside configured range", relay.Port)
+		}
+		inboundTag := fmt.Sprintf("task-%d-vless-in-%d", relay.TaskID, relay.Port)
+		outboundTag := fmt.Sprintf("task-%d-vless-out-%d", relay.TaskID, relay.Port)
+		cfg.Inbounds = append(cfg.Inbounds, m.socksInbound(inboundTag, relay.Port))
+		cfg.Outbounds = append(cfg.Outbounds, vlessOutbound(outboundTag, relay.Node))
+		cfg.Route.Rules = append(cfg.Route.Rules, singBoxRouteRule{Inbound: []string{inboundTag}, Outbound: outboundTag})
+	}
+	if len(cfg.Inbounds) > 0 {
+		cfg.Outbounds = append(cfg.Outbounds, singBoxOutbound{Type: "direct", Tag: "direct"})
+	}
+	return m.writeConfig(cfg)
 }
 
 func countVLESS(nodes []convert.Node) int {
