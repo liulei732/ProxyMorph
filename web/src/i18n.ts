@@ -62,6 +62,7 @@ export const translations = {
     forms: {
       name: "名称",
       clashURL: "Clash 链接",
+      sourceUserAgent: "User-Agent",
       refreshSeconds: "刷新秒数",
       proxyURIs: "代理链接 / Surge 节点行",
       create: "创建",
@@ -90,6 +91,7 @@ export const translations = {
     placeholders: {
       taskName: "主订阅",
       clashURL: "https://example.com/clash.yaml",
+      sourceUserAgent: "留空使用默认浏览器 UA",
       proxyURIs: "vless://uuid@example.com:443?security=tls&sni=edge.example.com#Edge\n香港 03 AnyTLS = anytls, at03.example.com, 18611, password=secret, sni=www.baidu.com, skip-cert-verify=true",
       customRules: "DOMAIN,example.com,DIRECT\nIP-CIDR,192.168.0.0/16,DIRECT",
       finalRulePolicy: "留空自动选择，或填写 Proxy / DIRECT / REJECT / 策略组名",
@@ -134,6 +136,7 @@ export const translations = {
       managedState: "托管配置",
       autoFinalPolicy: "自动",
       global: "跟随全局",
+      defaultSourceUserAgent: "默认浏览器 UA",
       intro: {
         basic: "常用字段优先展示，保持任务基础信息清晰。",
         conversion: "把节点、规则和协议辅助转换分开，避免不同类型的开关混在一起。",
@@ -154,6 +157,7 @@ export const translations = {
       },
       subsections: {
         nodes: "节点配置",
+        sourceRequest: "订阅请求",
         rules: "规则配置",
         vless: "VLESS 配置",
         relay: "辅助转换",
@@ -164,6 +168,7 @@ export const translations = {
       },
       descriptions: {
         nodes: "控制固定节点库如何参与这次转换。",
+        sourceRequest: "控制访问上游订阅链接时使用的请求头。",
         mergeDefaults: "启用后，所有已启用的固定节点会合并到当前任务输出中。",
         rules: "控制全局规则和自定义规则如何进入最终 Surge 配置。",
         includeGlobalRules: "来自设置页的全局规则会追加到当前任务。",
@@ -385,6 +390,7 @@ export const translations = {
     forms: {
       name: "Name",
       clashURL: "Clash URL",
+      sourceUserAgent: "User-Agent",
       refreshSeconds: "Refresh seconds",
       proxyURIs: "Proxy URIs / Surge proxy lines",
       create: "Create",
@@ -413,6 +419,7 @@ export const translations = {
     placeholders: {
       taskName: "Main subscription",
       clashURL: "https://example.com/clash.yaml",
+      sourceUserAgent: "Leave blank to use the default browser User-Agent",
       proxyURIs: "vless://uuid@example.com:443?security=tls&sni=edge.example.com#Edge\nHK 03 AnyTLS = anytls, at03.example.com, 18611, password=secret, sni=www.baidu.com, skip-cert-verify=true",
       customRules: "DOMAIN,example.com,DIRECT\nIP-CIDR,192.168.0.0/16,DIRECT",
       finalRulePolicy: "Leave blank for auto, or enter Proxy / DIRECT / REJECT / group name",
@@ -457,6 +464,7 @@ export const translations = {
       managedState: "Managed config",
       autoFinalPolicy: "Auto",
       global: "Follow global",
+      defaultSourceUserAgent: "Default browser UA",
       intro: {
         basic: "Keep common task fields easy to scan first.",
         conversion: "Separate node, rule, and protocol helper settings so unrelated toggles are not mixed together.",
@@ -477,6 +485,7 @@ export const translations = {
       },
       subsections: {
         nodes: "Node Configuration",
+        sourceRequest: "Subscription Request",
         rules: "Rule Configuration",
         vless: "VLESS Configuration",
         relay: "Helper Conversion",
@@ -487,6 +496,7 @@ export const translations = {
       },
       descriptions: {
         nodes: "Control how the pinned node library participates in this conversion.",
+        sourceRequest: "Control request headers used when fetching the upstream subscription.",
         mergeDefaults: "When enabled, all enabled pinned nodes are merged into this task output.",
         rules: "Control how global and custom rules enter the final Surge config.",
         includeGlobalRules: "Rules from Settings are appended to this task.",

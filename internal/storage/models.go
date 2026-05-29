@@ -17,6 +17,7 @@ type ConversionTask struct {
 	InputType                    string
 	OutputType                   string
 	SourceURL                    string
+	SourceUserAgent              string
 	Enabled                      bool
 	RefreshIntervalSeconds       int
 	MergeDefaultPinnedNodes      bool

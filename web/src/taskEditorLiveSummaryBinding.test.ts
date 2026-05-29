@@ -32,6 +32,15 @@ describe("task editor live summary binding", () => {
     assert.match(source, /void onPreviewDraft\(task\.ID, next\)/);
   });
 
+  it("routes subscription request user agent edits through draft preview updates", () => {
+    assert.match(source, /SourceUserAgent:\s*string/);
+    assert.match(source, /source_user_agent\?:\s*string/);
+    assert.match(source, /source_user_agent:\s*task\.SourceUserAgent/);
+    assert.match(source, /name="source_user_agent"[\s\S]*updateDraft\("source_user_agent"/);
+    assert.match(source, /\[t\.forms\.sourceUserAgent,\s*draft\.source_user_agent/);
+    assert.match(source, /t\.taskEditor\.defaultSourceUserAgent/);
+  });
+
   it("routes structured custom policy group edits through draft preview updates", () => {
     assert.match(source, /PolicyGroupEditor/);
     assert.match(source, /onChange=\{\(value\) => updateDraft\("custom_groups_text", value\)\}/);

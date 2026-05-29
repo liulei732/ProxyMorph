@@ -103,7 +103,7 @@ func (s *Service) generateTask(task storage.ConversionTask, relayHost string, pe
 	}
 	startedAt := time.Now()
 	log.Printf("subscription task=%d stage=fetch status=start source=%q", task.ID, safeSourceLabel(task.SourceURL))
-	content, err := s.fetch(task.SourceURL)
+	content, err := s.fetch(task.SourceURL, task.SourceUserAgent)
 	if err != nil {
 		log.Printf("subscription task=%d stage=fetch status=error duration_ms=%d error=%q", task.ID, time.Since(startedAt).Milliseconds(), err)
 		if !persist {
@@ -228,6 +228,9 @@ func applyDraft(task storage.ConversionTask, input tasks.UpdateInput) storage.Co
 	}
 	if input.SourceURL != nil {
 		task.SourceURL = *input.SourceURL
+	}
+	if input.SourceUserAgent != nil {
+		task.SourceUserAgent = strings.TrimSpace(*input.SourceUserAgent)
 	}
 	if input.RefreshIntervalSeconds != nil && *input.RefreshIntervalSeconds > 0 {
 		task.RefreshIntervalSeconds = *input.RefreshIntervalSeconds
@@ -670,7 +673,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 	var enabled, mergeDefaults, includeGlobalRules int
 	err := s.db.SQL().QueryRow(`
 		SELECT id, user_id, name, input_type, output_type, source_url, enabled,
-			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
+			source_user_agent, refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, final_rule_policy, custom_groups_text,
 			vless_relay_mode, trojan_ws_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
@@ -679,7 +682,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 		FROM conversion_tasks
 		WHERE id = ?`, taskID).Scan(
 		&task.ID, &task.UserID, &task.Name, &task.InputType, &task.OutputType, &task.SourceURL,
-		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
+		&enabled, &task.SourceUserAgent, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&task.LastErrorMessage,
 		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.FinalRulePolicy, &task.CustomGroupsText,
 		&task.VLESSRelayMode, &task.TrojanWSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,
@@ -864,7 +867,7 @@ func textLines(text string) []string {
 	return result
 }
 
-func (s *Service) fetch(sourceURL string) ([]byte, error) {
+func (s *Service) fetch(sourceURL string, userAgent ...string) ([]byte, error) {
 	if err := s.validateSourceURL(sourceURL); err != nil {
 		return nil, err
 	}
@@ -872,6 +875,7 @@ func (s *Service) fetch(sourceURL string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", sourceUserAgent(userAgent...))
 	res, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -891,6 +895,17 @@ func (s *Service) fetch(sourceURL string) ([]byte, error) {
 }
 
 const maxSubscriptionBytes = 5 * 1024 * 1024
+
+const defaultSubscriptionUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+
+func sourceUserAgent(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return defaultSubscriptionUserAgent
+}
 
 func (s *Service) validateSourceURL(sourceURL string) error {
 	parsed, err := url.Parse(sourceURL)

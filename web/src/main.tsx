@@ -17,6 +17,7 @@ type Task = {
   InputType: string;
   OutputType: string;
   SourceURL: string;
+  SourceUserAgent: string;
   Enabled: boolean;
   RefreshIntervalSeconds: number;
   MergeDefaultPinnedNodes: boolean;
@@ -511,6 +512,7 @@ function App() {
             <form className="panel grid-form" onSubmit={createTask}>
               <label>{t.forms.name}<input name="name" placeholder={t.placeholders.taskName} /></label>
               <label>{t.forms.clashURL}<input name="source_url" placeholder={t.placeholders.clashURL} /></label>
+              <label>{t.forms.sourceUserAgent}<input name="source_user_agent" placeholder={t.placeholders.sourceUserAgent} /></label>
               <label>{t.forms.refreshSeconds}<input name="refresh_interval_seconds" type="number" defaultValue="3600" /></label>
               <button><Plus size={16} /> {t.forms.create}</button>
             </form>
@@ -561,6 +563,7 @@ function App() {
 type TaskUpdateInput = {
   name?: string;
   source_url?: string;
+  source_user_agent?: string;
   refresh_interval_seconds?: number;
   enabled?: boolean;
   merge_default_pinned_nodes?: boolean;
@@ -837,7 +840,12 @@ function TaskRow({
                     <label>{t.forms.name}<input name="name" value={draft.name || ""} onChange={(event) => updateDraft("name", event.currentTarget.value)} /></label>
                     <label>{t.forms.refreshSeconds}<input name="refresh_interval_seconds" type="number" value={draft.refresh_interval_seconds || 3600} onChange={(event) => updateDraft("refresh_interval_seconds", Number(event.currentTarget.value))} /></label>
                     <label className="editor-switch"><input name="enabled" type="checkbox" checked={draft.enabled || false} onChange={(event) => updateDraft("enabled", event.currentTarget.checked)} /> {t.forms.enabled}</label>
-                    <label className="wide-field">{t.forms.clashURL}<input name="source_url" value={draft.source_url || ""} onChange={(event) => updateDraft("source_url", event.currentTarget.value)} /></label>
+                  </div>
+                </EditorSubsection>
+                <EditorSubsection title={t.taskEditor.subsections.sourceRequest} description={t.taskEditor.descriptions.sourceRequest}>
+                  <div className="editor-grid">
+                    <label className="wide-field">{t.forms.clashURL}<input name="source_url" value={draft.source_url || ""} onChange={(event) => updateDraft("source_url", event.currentTarget.value)} placeholder={t.placeholders.clashURL} /></label>
+                    <label className="wide-field">{t.forms.sourceUserAgent}<input name="source_user_agent" value={draft.source_user_agent || ""} onChange={(event) => updateDraft("source_user_agent", event.currentTarget.value)} placeholder={t.placeholders.sourceUserAgent} /></label>
                   </div>
                 </EditorSubsection>
               </div>
@@ -912,7 +920,8 @@ function TaskRow({
                   <SummaryList items={[
                     [t.taskEditor.taskStatus, status.label],
                     [t.taskEditor.outputType, `${task.InputType} ${t.taskList.route} ${task.OutputType}`],
-                    [t.forms.refreshSeconds, String(task.RefreshIntervalSeconds)],
+                    [t.forms.refreshSeconds, String(draft.refresh_interval_seconds || 3600)],
+                    [t.forms.sourceUserAgent, draft.source_user_agent || t.taskEditor.defaultSourceUserAgent],
                     [t.taskList.copy, absoluteSubscriptionURL(task.SubscriptionURL)],
                   ]} />
                 </EditorSummaryCard>
@@ -1358,6 +1367,7 @@ function taskDraftInput(task: Task): TaskUpdateInput {
   return {
     name: task.Name,
     source_url: task.SourceURL,
+    source_user_agent: task.SourceUserAgent || "",
     refresh_interval_seconds: task.RefreshIntervalSeconds || 3600,
     enabled: task.Enabled,
     merge_default_pinned_nodes: task.MergeDefaultPinnedNodes,

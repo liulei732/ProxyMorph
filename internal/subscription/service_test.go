@@ -94,6 +94,62 @@ func TestFetchLimitsResponseSize(t *testing.T) {
 	}
 }
 
+func TestGenerateUsesTaskSourceUserAgent(t *testing.T) {
+	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\nrules:\n  - FINAL,Proxy\n"
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedTaskUser(t, db)
+	seedTask(t, db, userID, "https://upstream.example.test/clash.yaml", 0)
+	if _, err := db.SQL().Exec(`UPDATE conversion_tasks SET source_user_agent = 'Surge iOS/2999' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	var gotUserAgent string
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		gotUserAgent = r.Header.Get("User-Agent")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+
+	if _, err := service.GenerateByTaskID(1); err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if gotUserAgent != "Surge iOS/2999" {
+		t.Fatalf("User-Agent = %q, want task custom UA", gotUserAgent)
+	}
+}
+
+func TestGenerateUsesDefaultBrowserUserAgentWhenTaskUserAgentIsBlank(t *testing.T) {
+	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\nrules:\n  - FINAL,Proxy\n"
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/clash.yaml")
+	var gotUserAgent string
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		gotUserAgent = r.Header.Get("User-Agent")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+
+	if _, err := service.GenerateByTaskID(1); err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if gotUserAgent == "" || strings.Contains(gotUserAgent, "Go-http-client") {
+		t.Fatalf("User-Agent = %q, want browser-like default UA", gotUserAgent)
+	}
+}
+
 func TestGenerateMergesEnabledPinnedNodesWithoutDefaultInclude(t *testing.T) {
 	upstreamContent := "proxies:\n  - name: Remote\n    type: ss\n    server: remote.example\n    port: 8388\n    cipher: aes-256-gcm\n    password: pass\nrules:\n  - FINAL,Proxy\n"
 

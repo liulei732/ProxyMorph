@@ -98,6 +98,29 @@ func TestCreateTaskAcceptsTrojanWSRelayMode(t *testing.T) {
 	}
 }
 
+func TestCreateTaskAcceptsSourceUserAgent(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+
+	task, err := service.Create(userID, CreateInput{
+		Name:                   "Main",
+		SourceURL:              "https://example.com/clash.yaml",
+		SourceUserAgent:        "Surge iOS/2999",
+		RefreshIntervalSeconds: 3600,
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if task.SourceUserAgent != "Surge iOS/2999" {
+		t.Fatalf("SourceUserAgent = %q, want custom UA", task.SourceUserAgent)
+	}
+}
+
 func TestCreateUsesNameQueryWhenNameIsBlank(t *testing.T) {
 	t.Setenv("PROXYMORPH_PUBLIC_BASE_URL", "https://proxy.example.test")
 	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
@@ -164,6 +187,7 @@ func TestUpdateTaskChangesEditableFields(t *testing.T) {
 	next, err := service.Update(userID, task.ID, UpdateInput{
 		Name:                    stringPtr("Updated"),
 		SourceURL:               stringPtr("https://example.com/b.yaml"),
+		SourceUserAgent:         stringPtr("Surge iOS/2999"),
 		RefreshIntervalSeconds:  intPtr(7200),
 		Enabled:                 &enabled,
 		MergeDefaultPinnedNodes: &mergeDefaults,
@@ -173,6 +197,9 @@ func TestUpdateTaskChangesEditableFields(t *testing.T) {
 	}
 	if next.Name != "Updated" || next.SourceURL != "https://example.com/b.yaml" || next.RefreshIntervalSeconds != 7200 || next.Enabled || next.MergeDefaultPinnedNodes {
 		t.Fatalf("unexpected updated task: %#v", next)
+	}
+	if next.SourceUserAgent != "Surge iOS/2999" {
+		t.Fatalf("SourceUserAgent = %q, want custom UA", next.SourceUserAgent)
 	}
 }
 

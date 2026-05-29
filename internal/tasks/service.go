@@ -24,6 +24,7 @@ const defaultSubscriptionInfoKeywordsText = "剩余流量\n流量\n重置\n套�
 type CreateInput struct {
 	Name                   string `json:"name"`
 	SourceURL              string `json:"source_url"`
+	SourceUserAgent        string `json:"source_user_agent"`
 	RefreshIntervalSeconds int    `json:"refresh_interval_seconds"`
 	VLESSRelayMode         string `json:"vless_relay_mode"`
 	TrojanWSRelayMode      string `json:"trojan_ws_relay_mode"`
@@ -32,6 +33,7 @@ type CreateInput struct {
 type UpdateInput struct {
 	Name                         *string `json:"name"`
 	SourceURL                    *string `json:"source_url"`
+	SourceUserAgent              *string `json:"source_user_agent"`
 	RefreshIntervalSeconds       *int    `json:"refresh_interval_seconds"`
 	Enabled                      *bool   `json:"enabled"`
 	MergeDefaultPinnedNodes      *bool   `json:"merge_default_pinned_nodes"`
@@ -78,10 +80,10 @@ func (s *Service) Create(userID int64, input CreateInput) (storage.ConversionTas
 	trojanWSRelayMode := normalizeTrojanWSRelayMode(input.TrojanWSRelayMode)
 	res, err := s.db.SQL().Exec(`
 		INSERT INTO conversion_tasks (
-			user_id, name, input_type, output_type, source_url, enabled,
+			user_id, name, input_type, output_type, source_url, source_user_agent, enabled,
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode, vless_relay_mode, trojan_ws_relay_mode
-		) VALUES (?, ?, 'clash', 'surge6', ?, 1, ?, 1, 'after_remote', ?, ?)`,
-		userID, input.Name, input.SourceURL, input.RefreshIntervalSeconds, vlessRelayMode, trojanWSRelayMode,
+		) VALUES (?, ?, 'clash', 'surge6', ?, ?, 1, ?, 1, 'after_remote', ?, ?)`,
+		userID, input.Name, input.SourceURL, normalizeSourceUserAgent(input.SourceUserAgent), input.RefreshIntervalSeconds, vlessRelayMode, trojanWSRelayMode,
 	)
 	if err != nil {
 		return storage.ConversionTask{}, err
@@ -123,6 +125,9 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 	}
 	if input.SourceURL != nil {
 		task.SourceURL = *input.SourceURL
+	}
+	if input.SourceUserAgent != nil {
+		task.SourceUserAgent = normalizeSourceUserAgent(*input.SourceUserAgent)
 	}
 	if input.RefreshIntervalSeconds != nil && *input.RefreshIntervalSeconds > 0 {
 		task.RefreshIntervalSeconds = *input.RefreshIntervalSeconds
@@ -183,14 +188,14 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 	includeGlobalRules := boolToInt(task.IncludeGlobalRules)
 	_, err = s.db.SQL().Exec(`
 		UPDATE conversion_tasks
-		SET name = ?, source_url = ?, refresh_interval_seconds = ?, enabled = ?,
+		SET name = ?, source_url = ?, source_user_agent = ?, refresh_interval_seconds = ?, enabled = ?,
 			merge_default_pinned_nodes = ?, include_global_rules = ?, custom_rules_text = ?,
 			rule_merge_mode = ?, final_rule_policy = ?, custom_groups_text = ?, vless_relay_mode = ?, trojan_ws_relay_mode = ?,
 			managed_config_mode = ?, managed_config_url_mode = ?, managed_config_custom_url = ?,
 			managed_config_interval_mode = ?, managed_config_interval_seconds = ?, managed_config_strict_mode = ?,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = ? AND id = ?`,
-		task.Name, task.SourceURL, task.RefreshIntervalSeconds, enabled, mergeDefaults,
+		task.Name, task.SourceURL, task.SourceUserAgent, task.RefreshIntervalSeconds, enabled, mergeDefaults,
 		includeGlobalRules, task.CustomRulesText, task.RuleMergeMode, task.FinalRulePolicy, task.CustomGroupsText,
 		task.VLESSRelayMode, task.TrojanWSRelayMode, task.ManagedConfigMode, task.ManagedConfigURLMode, task.ManagedConfigCustomURL,
 		task.ManagedConfigIntervalMode, task.ManagedConfigIntervalSeconds, task.ManagedConfigStrictMode,
@@ -234,7 +239,7 @@ func (s *Service) Delete(userID, id int64) error {
 func (s *Service) List(userID int64) ([]storage.ConversionTask, error) {
 	rows, err := s.db.SQL().Query(`
 		SELECT id, user_id, name, input_type, output_type, source_url, enabled,
-			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
+			source_user_agent, refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, final_rule_policy, custom_groups_text,
 			vless_relay_mode, trojan_ws_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
@@ -277,7 +282,7 @@ func (s *Service) List(userID int64) ([]storage.ConversionTask, error) {
 func (s *Service) get(userID, id int64) (storage.ConversionTask, error) {
 	row := s.db.SQL().QueryRow(`
 		SELECT id, user_id, name, input_type, output_type, source_url, enabled,
-			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
+			source_user_agent, refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, final_rule_policy, custom_groups_text,
 			vless_relay_mode, trojan_ws_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
@@ -552,6 +557,10 @@ func normalizeFinalRulePolicy(policy string) string {
 	return strings.TrimSpace(policy)
 }
 
+func normalizeSourceUserAgent(userAgent string) string {
+	return strings.TrimSpace(userAgent)
+}
+
 func normalizeVLESSRelayMode(mode string) string {
 	return normalizeTriStateMode(mode)
 }
@@ -628,7 +637,7 @@ func scanTask(row taskScanner) (storage.ConversionTask, error) {
 	var lastSuccessAt, lastErrorAt sql.NullString
 	err := row.Scan(
 		&task.ID, &task.UserID, &task.Name, &task.InputType, &task.OutputType, &task.SourceURL,
-		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
+		&enabled, &task.SourceUserAgent, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&lastSuccessAt, &lastErrorAt, &task.LastErrorMessage,
 		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.FinalRulePolicy, &task.CustomGroupsText,
 		&task.VLESSRelayMode, &task.TrojanWSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,

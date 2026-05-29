@@ -21,6 +21,7 @@ func (db *DB) Migrate(ctx context.Context) error {
 			input_type TEXT NOT NULL,
 			output_type TEXT NOT NULL,
 			source_url TEXT NOT NULL,
+			source_user_agent TEXT NOT NULL DEFAULT '',
 			enabled INTEGER NOT NULL DEFAULT 1,
 			refresh_interval_seconds INTEGER NOT NULL DEFAULT 3600,
 			merge_default_pinned_nodes INTEGER NOT NULL DEFAULT 1,
@@ -104,6 +105,7 @@ func (db *DB) Migrate(ctx context.Context) error {
 	}
 	for _, stmt := range []string{
 		`ALTER TABLE conversion_tasks ADD COLUMN include_global_rules INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE conversion_tasks ADD COLUMN source_user_agent TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE conversion_tasks ADD COLUMN custom_rules_text TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE conversion_tasks ADD COLUMN rule_merge_mode TEXT NOT NULL DEFAULT 'custom_first'`,
 		`ALTER TABLE conversion_tasks ADD COLUMN final_rule_policy TEXT NOT NULL DEFAULT ''`,
