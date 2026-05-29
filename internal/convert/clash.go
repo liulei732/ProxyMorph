@@ -47,7 +47,7 @@ func ParseClash(data []byte) (Document, error) {
 				node.Params[key] = value
 			}
 		}
-		if node.Protocol == "trojan" || node.Protocol == "vless" || node.Protocol == "vmess" || node.Protocol == "anytls" {
+		if node.Protocol == "trojan" || node.Protocol == "vless" || node.Protocol == "vmess" || node.Protocol == "anytls" || node.Protocol == "hysteria2" {
 			copyBoolParam(node.Params, "skip_cert_verify", proxy["skip-cert-verify"])
 			copyBoolParam(node.Params, "udp", proxy["udp"])
 			copyClashParam(node.Params, "network", proxy["network"])
@@ -60,6 +60,13 @@ func ParseClash(data []byte) (Document, error) {
 		}
 		if node.Protocol == "anytls" {
 			copyClashParam(node.Params, "client_fingerprint", proxy["client-fingerprint"])
+		}
+		if node.Protocol == "hysteria2" {
+			copyClashParam(node.Params, "up", proxy["up"])
+			copyClashParam(node.Params, "down", proxy["down"])
+			copyClashParam(node.Params, "ports", proxy["ports"])
+			copyClashParam(node.Params, "obfs", proxy["obfs"])
+			copyClashParam(node.Params, "obfs_password", proxy["obfs-password"])
 		}
 		if node.Protocol == "vless" || node.Protocol == "vmess" {
 			copyClashParam(node.Params, "uuid", proxy["uuid"])

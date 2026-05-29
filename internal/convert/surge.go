@@ -462,6 +462,22 @@ func renderNodeWithOptions(node Node, opts RenderOptions) (string, error) {
 		}
 		appendSharedSurgeParams(&parts, node)
 		return strings.Join(parts, ", "), nil
+	case "hysteria2":
+		parts := []string{fmt.Sprintf("%s = hysteria2, %s, %d, password=%s", node.Name, node.Server, node.Port, node.Params["password"])}
+		if sni := node.Params["sni"]; sni != "" {
+			parts = append(parts, "sni="+sni)
+		}
+		appendSharedSurgeParams(&parts, node)
+		if down := node.Params["down"]; down != "" {
+			parts = append(parts, "download-bandwidth="+down)
+		}
+		if up := node.Params["up"]; up != "" {
+			parts = append(parts, "upload-bandwidth="+up)
+		}
+		if ports := node.Params["ports"]; ports != "" {
+			parts = append(parts, "port-hopping="+quoteSurgeValue(ports))
+		}
+		return strings.Join(parts, ", "), nil
 	default:
 		keys := make([]string, 0, len(node.Params))
 		for key := range node.Params {
@@ -474,6 +490,16 @@ func renderNodeWithOptions(node Node, opts RenderOptions) (string, error) {
 		}
 		return strings.Join(parts, ", "), nil
 	}
+}
+
+func quoteSurgeValue(value string) string {
+	if value == "" {
+		return `""`
+	}
+	if strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
+		return value
+	}
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func appendSharedSurgeParams(parts *[]string, node Node) {

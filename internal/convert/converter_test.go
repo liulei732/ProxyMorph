@@ -229,6 +229,57 @@ rules:
 	}
 }
 
+func TestParseClashAndRenderHysteria2Options(t *testing.T) {
+	input := []byte(`
+proxies:
+  - name: "🇭🇰 香港01[HY2]"
+    type: hysteria2
+    server: mix.direct.hk01.sys-metric-report.com
+    port: 22392
+    sni: live-pull-quic.pstatp.com
+    up: 1000
+    down: 1000
+    skip-cert-verify: true
+    password: 9b129717-916d-4d3f-a496-bfc316ac2266
+    obfs: salamander
+    obfs-password: OGQ0N2E4NzQ2YmE4MTBjMw==
+    ports: 20000-30000
+rules:
+  - FINAL,Proxy
+`)
+	doc, err := ParseClash(input)
+	if err != nil {
+		t.Fatalf("ParseClash returned error: %v", err)
+	}
+	if len(doc.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(doc.Nodes))
+	}
+	node := doc.Nodes[0]
+	if node.Protocol != "hysteria2" || node.Params["skip_cert_verify"] != "true" || node.Params["ports"] != "20000-30000" || node.Params["down"] != "1000" || node.Params["up"] != "1000" {
+		t.Fatalf("unexpected Hysteria2 params: %#v", node)
+	}
+	if node.Params["obfs"] != "salamander" || node.Params["obfs_password"] != "OGQ0N2E4NzQ2YmE4MTBjMw==" {
+		t.Fatalf("unexpected Hysteria2 obfs params: %#v", node.Params)
+	}
+	out := RenderSurge6(doc.Nodes, nil, doc.Rules)
+	for _, want := range []string{
+		"🇭🇰 香港01[HY2] = hysteria2, mix.direct.hk01.sys-metric-report.com, 22392",
+		"password=9b129717-916d-4d3f-a496-bfc316ac2266",
+		"sni=live-pull-quic.pstatp.com",
+		"skip-cert-verify=true",
+		"download-bandwidth=1000",
+		"upload-bandwidth=1000",
+		"port-hopping=\"20000-30000\"",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "skip_cert_verify") || strings.Contains(out, "obfs=salamander") || strings.Contains(out, "obfs-password") || strings.Contains(out, "ports=") {
+		t.Fatalf("output should not render Clash-only or unsupported params directly:\n%s", out)
+	}
+}
+
 func TestRenderSurge6WithWarningsDoesNotWarnForSupportedAnyTLSOptions(t *testing.T) {
 	result, err := RenderSurge6WithWarnings(
 		[]Node{{
