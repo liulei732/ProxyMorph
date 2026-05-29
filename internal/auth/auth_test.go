@@ -73,3 +73,35 @@ func TestEnsureAdminDoesNotResetExistingPasswordWhenPasswordUnset(t *testing.T) 
 		t.Fatal("expected default password to remain invalid")
 	}
 }
+
+func TestChangePasswordRequiresCurrentPasswordAndUpdatesHash(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	service := NewService(db, []byte("test-secret"))
+	if err := service.EnsureAdmin("admin", "old-password"); err != nil {
+		t.Fatalf("EnsureAdmin returned error: %v", err)
+	}
+	user, err := service.Authenticate("admin", "old-password")
+	if err != nil {
+		t.Fatalf("Authenticate returned error: %v", err)
+	}
+	if err := service.ChangePassword(user.ID, "wrong-password", "new-password"); err != ErrInvalidCredentials {
+		t.Fatalf("ChangePassword wrong current error = %v, want ErrInvalidCredentials", err)
+	}
+	if err := service.ChangePassword(user.ID, "old-password", "short"); err != ErrPasswordTooShort {
+		t.Fatalf("ChangePassword short password error = %v, want ErrPasswordTooShort", err)
+	}
+	if err := service.ChangePassword(user.ID, "old-password", "new-password"); err != nil {
+		t.Fatalf("ChangePassword returned error: %v", err)
+	}
+	if _, err := service.Authenticate("admin", "old-password"); err == nil {
+		t.Fatal("expected old password to stop working")
+	}
+	if _, err := service.Authenticate("admin", "new-password"); err != nil {
+		t.Fatalf("Authenticate with new password returned error: %v", err)
+	}
+}

@@ -40,6 +40,12 @@ h1, h2, h3, p { margin-top: 0; }
 .topbar h2 { margin: 0; font-size: 24px; letter-spacing: 0; }
 .topbar p { margin: 4px 0 0; color: var(--muted); }
 .top-actions { display: flex; align-items: center; gap: 10px; }
+.account-menu { display: flex; align-items: center; gap: 8px; }
+.account-name { min-height: 34px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 0 11px; background: white; color: var(--ink); font-size: 13px; font-weight: 780; }
+.account-dialog-overlay { position: fixed; inset: 0; z-index: 45; display: grid; place-items: center; padding: 24px; background: rgba(16, 24, 40, 0.34); }
+.account-dialog { width: min(420px, calc(100vw - 32px)); display: grid; gap: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: white; box-shadow: 0 24px 70px rgba(24, 34, 48, 0.28); }
+.account-dialog header, .account-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.account-dialog h3 { margin: 0; font-size: 17px; }
 .toast { position: fixed; right: 22px; bottom: 22px; z-index: 20; max-width: min(420px, calc(100vw - 32px)); border: 1px solid #b7d7d2; border-radius: 7px; padding: 12px 14px; background: #eef8f6; color: var(--accent); box-shadow: 0 16px 38px rgba(24, 34, 48, 0.16); font-weight: 750; }
 .validation-error-overlay { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: rgba(16, 24, 40, 0.34); }
 .validation-error-dialog { width: min(680px, calc(100vw - 32px)); max-height: min(620px, calc(100vh - 48px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 14px; border: 1px solid #f4b6b6; border-radius: 8px; padding: 16px; background: white; box-shadow: 0 24px 70px rgba(24, 34, 48, 0.28); }

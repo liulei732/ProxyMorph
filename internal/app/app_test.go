@@ -66,6 +66,55 @@ func TestMeEndpointReturnsAuthenticatedUser(t *testing.T) {
 	}
 }
 
+func TestAccountPasswordChangeAndLogoutEndpoints(t *testing.T) {
+	cfg := config.Config{Addr: ":0", DataDir: t.TempDir(), SessionSecret: "test-secret", InitialAdminUsername: "admin", InitialAdminPassword: "password"}
+	app, err := New(cfg, filepath.Join(cfg.DataDir, "test.db"))
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	defer app.Close()
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"username":"admin","password":"password"}`))
+	loginRes := httptest.NewRecorder()
+	app.Handler().ServeHTTP(loginRes, loginReq)
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%q", loginRes.Code, loginRes.Body.String())
+	}
+	cookie := loginRes.Result().Cookies()[0]
+
+	changeReq := httptest.NewRequest(http.MethodPatch, "/api/me/password", bytes.NewBufferString(`{"current_password":"password","new_password":"new-password"}`))
+	changeReq.AddCookie(cookie)
+	changeRes := httptest.NewRecorder()
+	app.Handler().ServeHTTP(changeRes, changeReq)
+	if changeRes.Code != http.StatusOK {
+		t.Fatalf("change password status = %d body=%q", changeRes.Code, changeRes.Body.String())
+	}
+
+	oldLoginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"username":"admin","password":"password"}`))
+	oldLoginRes := httptest.NewRecorder()
+	app.Handler().ServeHTTP(oldLoginRes, oldLoginReq)
+	if oldLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("old password login status = %d body=%q", oldLoginRes.Code, oldLoginRes.Body.String())
+	}
+	newLoginReq := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewBufferString(`{"username":"admin","password":"new-password"}`))
+	newLoginRes := httptest.NewRecorder()
+	app.Handler().ServeHTTP(newLoginRes, newLoginReq)
+	if newLoginRes.Code != http.StatusOK {
+		t.Fatalf("new password login status = %d body=%q", newLoginRes.Code, newLoginRes.Body.String())
+	}
+
+	logoutReq := httptest.NewRequest(http.MethodPost, "/api/logout", nil)
+	logoutRes := httptest.NewRecorder()
+	app.Handler().ServeHTTP(logoutRes, logoutReq)
+	if logoutRes.Code != http.StatusOK {
+		t.Fatalf("logout status = %d body=%q", logoutRes.Code, logoutRes.Body.String())
+	}
+	cookies := logoutRes.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "proxymorph_session" || cookies[0].MaxAge != -1 {
+		t.Fatalf("logout should clear session cookie, got %#v", cookies)
+	}
+}
+
 func TestRuleConfigEndpointRoundTrip(t *testing.T) {
 	cfg := config.Config{Addr: ":0", DataDir: t.TempDir(), SessionSecret: "test-secret", InitialAdminUsername: "admin", InitialAdminPassword: "password"}
 	app, err := New(cfg, filepath.Join(cfg.DataDir, "test.db"))

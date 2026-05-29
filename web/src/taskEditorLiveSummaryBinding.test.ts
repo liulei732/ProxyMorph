@@ -141,4 +141,15 @@ describe("task editor live summary binding", () => {
     assert.doesNotMatch(nodeListBlock, /nodeList\.manual/);
     assert.doesNotMatch(styles, /30px minmax\(240px, 1\.4fr\) 0\.55fr 0\.45fr 0\.45fr auto/);
   });
+
+  it("adds account controls for logout and password changes", () => {
+    assert.match(source, /type CurrentUser = \{/);
+    assert.match(source, /api<CurrentUser>\("\/api\/me"\)/);
+    assert.match(source, /async function logout\(\)/);
+    assert.match(source, /api\("\/api\/logout",\s*\{ method: "POST" \}\)/);
+    assert.match(source, /async function changePassword\(event: React\.FormEvent<HTMLFormElement>\)/);
+    assert.match(source, /api\("\/api\/me\/password",\s*\{ method: "PATCH"/);
+    assert.match(source, /AccountMenu/);
+    assert.match(source, /ChangePasswordDialog/);
+  });
 });

@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { AlertCircle, Copy, Eye, KeyRound, Layers, Pencil, Play, Plus, RefreshCw, Save, Search, Server, ShieldCheck, Trash2, X } from "lucide-react";
+import { AlertCircle, Copy, Eye, KeyRound, Layers, LogOut, Pencil, Play, Plus, RefreshCw, Save, Search, Server, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { api } from "./api";
 import { getInitialLanguage, languageStorageKey, languages, translations, type Language } from "./i18n";
 import { absoluteSubscriptionURL as buildAbsoluteSubscriptionURL, enabledManagedHeaderPreviewFromValues, managedHeaderPreviewFromValues, type GlobalManagedURLMode, type ManagedConfigDefaults, type ManagedIntervalMode, type ManagedPreviewValues, type ManagedURLMode, type RuleMergeMode, type TriStateMode, type VLESSRelayMode } from "./managedPreview";
@@ -53,6 +53,11 @@ type PinnedNode = {
   DefaultInclude: boolean;
 };
 
+type CurrentUser = {
+  id: number;
+  username: string;
+};
+
 type TaskOutputResponse = {
   content: string;
   error?: string;
@@ -62,7 +67,9 @@ type NodeBatchAction = "enable" | "disable" | "delete";
 
 function App() {
   const [loggedIn, setLoggedIn] = React.useState(false);
+  const [currentUser, setCurrentUser] = React.useState<CurrentUser | null>(null);
   const [checkingSession, setCheckingSession] = React.useState(true);
+  const [showPasswordDialog, setShowPasswordDialog] = React.useState(false);
   const [tab, setTab] = React.useState("overview");
   const [language, setLanguage] = React.useState<Language>(() => getInitialLanguage(localStorage.getItem(languageStorageKey)));
   const [tasks, setTasks] = React.useState<Task[]>([]);
@@ -84,16 +91,18 @@ function App() {
 
   React.useEffect(() => {
     let cancelled = false;
-    api("/api/me")
-      .then(async () => {
+    api<CurrentUser>("/api/me")
+      .then(async (user) => {
         if (cancelled) {
           return;
         }
+        setCurrentUser(user);
         setLoggedIn(true);
         await refresh();
       })
       .catch(() => {
         if (!cancelled) {
+          setCurrentUser(null);
           setLoggedIn(false);
         }
       })
@@ -155,11 +164,49 @@ function App() {
     const form = new FormData(event.currentTarget);
     try {
       await api("/api/login", { method: "POST", body: JSON.stringify(Object.fromEntries(form)) });
+      const user = await api<CurrentUser>("/api/me");
+      setCurrentUser(user);
       setLoggedIn(true);
       await refresh();
     } catch {
       setError(t.loginFailed);
     }
+  }
+
+  async function logout() {
+    try {
+      await api("/api/logout", { method: "POST" });
+    } catch {
+      // Local state still needs to be cleared if the server is already unreachable.
+    }
+    setLoggedIn(false);
+    setCurrentUser(null);
+    setTasks([]);
+    setNodes([]);
+    setPreviewContent("");
+    setPreviewState({ taskID: null });
+    setValidationError("");
+  }
+
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const currentPassword = String(form.get("current_password") || "");
+    const newPassword = String(form.get("new_password") || "");
+    const confirmPassword = String(form.get("confirm_password") || "");
+    if (newPassword !== confirmPassword) {
+      notify(t.account.passwordMismatch);
+      return;
+    }
+    try {
+      await api("/api/me/password", { method: "PATCH", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }) });
+    } catch {
+      notify(t.account.passwordChangeFailed);
+      return;
+    }
+    event.currentTarget.reset();
+    setShowPasswordDialog(false);
+    notify(t.account.passwordChanged);
   }
 
   async function createTask(event: React.FormEvent<HTMLFormElement>) {
@@ -433,11 +480,13 @@ function App() {
           </div>
           <div className="top-actions">
             <LanguageSwitch language={language} onChange={changeLanguage} />
+            <AccountMenu user={currentUser} t={t} onChangePassword={() => setShowPasswordDialog(true)} onLogout={logout} />
             <button onClick={() => refresh(true)}><RefreshCw size={16} /> {t.refresh}</button>
           </div>
         </header>
           {toast && <div className="toast">{toast}</div>}
           {validationError && <ValidationErrorDialog message={validationError} title={t.validationError.title} onClose={() => setValidationError("")} closeLabel={t.forms.cancel} />}
+          {showPasswordDialog && <ChangePasswordDialog t={t} onSubmit={changePassword} onClose={() => setShowPasswordDialog(false)} />}
 
         {tab === "overview" && (
           <section className="stack">
@@ -530,6 +579,36 @@ function LanguageSwitch({ language, onChange }: { language: Language; onChange: 
           {option.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function AccountMenu({ user, t, onChangePassword, onLogout }: { user: CurrentUser | null; t: typeof translations[Language]; onChangePassword: () => void; onLogout: () => void }) {
+  return (
+    <div className="account-menu">
+      <span className="account-name"><UserRound size={15} /> {user?.username || t.account.unknownUser}</span>
+      <button type="button" className="secondary-button" onClick={onChangePassword}><KeyRound size={15} /> {t.account.changePassword}</button>
+      <button type="button" className="secondary-button" onClick={onLogout}><LogOut size={15} /> {t.account.logout}</button>
+    </div>
+  );
+}
+
+function ChangePasswordDialog({ t, onSubmit, onClose }: { t: typeof translations[Language]; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void; onClose: () => void }) {
+  return (
+    <div className="account-dialog-overlay" role="dialog" aria-modal="true" aria-label={t.account.changePassword}>
+      <form className="account-dialog" onSubmit={onSubmit}>
+        <header>
+          <h3>{t.account.changePassword}</h3>
+          <button type="button" className="secondary-button icon-button" onClick={onClose} aria-label={t.forms.cancel}><X size={15} /></button>
+        </header>
+        <label>{t.account.currentPassword}<input name="current_password" type="password" autoComplete="current-password" /></label>
+        <label>{t.account.newPassword}<input name="new_password" type="password" autoComplete="new-password" /></label>
+        <label>{t.account.confirmPassword}<input name="confirm_password" type="password" autoComplete="new-password" /></label>
+        <footer>
+          <button type="button" className="secondary-button" onClick={onClose}>{t.forms.cancel}</button>
+          <button><Save size={15} /> {t.forms.save}</button>
+        </footer>
+      </form>
     </div>
   );
 }

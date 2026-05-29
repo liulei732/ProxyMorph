@@ -24,7 +24,9 @@ func (a *App) routes() {
 		_, _ = w.Write([]byte("ok\n"))
 	}))
 	a.mux.HandleFunc("/api/login", httpapi.Method(http.MethodPost, authHandler.Login))
+	a.mux.HandleFunc("/api/logout", httpapi.Method(http.MethodPost, authHandler.Logout))
 	a.mux.Handle("/api/me", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(httpapi.Method(http.MethodGet, authHandler.Me))))
+	a.mux.Handle("/api/me/password", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(httpapi.Method(http.MethodPatch, authHandler.ChangePassword))))
 	a.mux.Handle("/api/tasks", httpapi.RequireAuth(a.authSvc.VerifyToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

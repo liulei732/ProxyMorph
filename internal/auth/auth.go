@@ -15,6 +15,7 @@ import (
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
+var ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 
 type Service struct {
 	db     *storage.DB
@@ -78,6 +79,25 @@ func (s *Service) Authenticate(username, password string) (storage.User, error) 
 		return storage.User{}, ErrInvalidCredentials
 	}
 	return user, nil
+}
+
+func (s *Service) ChangePassword(userID int64, currentPassword, newPassword string) error {
+	if len(newPassword) < 8 {
+		return ErrPasswordTooShort
+	}
+	user, err := s.UserByID(context.Background(), userID)
+	if err != nil {
+		return err
+	}
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)) != nil {
+		return ErrInvalidCredentials
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.SQL().Exec(`UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, string(hash), userID)
+	return err
 }
 
 func (s *Service) SignUserID(userID int64) string {
