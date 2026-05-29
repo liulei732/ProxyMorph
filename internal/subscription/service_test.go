@@ -7,8 +7,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/liulei/proxymorph/internal/config"
 	"github.com/liulei/proxymorph/internal/storage"
@@ -545,6 +548,56 @@ func TestGenerateRelaysVLESSUsesRequestHostWhenConfiguredHostIsLocalhost(t *test
 	}
 }
 
+func TestGenerateStopsRestoredLocalhostRelayBeforeSwitchingToRequestHost(t *testing.T) {
+	uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@edge.example:443?security=tls&sni=edge.example&type=tcp#Edge"
+	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/sub")
+	seedVLESSRelaySetting(t, db, true)
+	if err := seedTaskToken(t, db, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	singBoxPath, runningCount := trackedFakeSingBox(t)
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "localhost",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: singBoxPath,
+		ConfigPath:  filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+	defer service.Close()
+
+	if _, err := service.GenerateByTaskID(1); err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if got := waitForFakeSingBoxCount(t, runningCount, 1); got != 1 {
+		t.Fatalf("running fake sing-box count = %d, want 1 after initial relay start", got)
+	}
+	if _, err := service.GenerateByTokenWithRelayHost(mustTaskToken(t, db), "proxy.example.test:8080"); err != nil {
+		t.Fatalf("GenerateByTokenWithRelayHost returned error: %v", err)
+	}
+	if got := waitForFakeSingBoxCount(t, runningCount, 1); got != 1 {
+		t.Fatalf("running fake sing-box count = %d, want old relay stopped before host switch start", got)
+	}
+}
+
 func generateVLESSWithRelaySettings(t *testing.T, globalEnabled bool, taskMode string) (string, error) {
 	t.Helper()
 	uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@edge.example:443?security=tls&sni=edge.example&type=ws&path=%2Fproxy&host=cdn.example#Edge"
@@ -592,6 +645,62 @@ func fakeSingBox(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func trackedFakeSingBox(t *testing.T) (string, func() int) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sing-box")
+	pidDir := filepath.Join(dir, "pids")
+	if err := os.MkdirAll(pidDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\n" +
+		"pidfile=\"" + pidDir + "/$$\"\n" +
+		"touch \"$pidfile\"\n" +
+		"trap 'rm -f \"$pidfile\"; exit 0' TERM INT\n" +
+		"while :; do sleep 1; done\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	count := func() int {
+		matches, err := filepath.Glob(filepath.Join(pidDir, "*"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		running := 0
+		for _, match := range matches {
+			pid, err := strconv.Atoi(filepath.Base(match))
+			if err != nil {
+				continue
+			}
+			if err := syscall.Kill(pid, 0); err == nil {
+				running++
+				continue
+			}
+			_ = os.Remove(match)
+		}
+		return running
+	}
+	t.Cleanup(func() {
+		if got := waitForFakeSingBoxCount(t, count, 0); got != 0 {
+			t.Fatalf("tracked fake sing-box leaked %d process(es)", got)
+		}
+	})
+	return path, count
+}
+
+func waitForFakeSingBoxCount(t *testing.T, count func() int, want int) int {
+	t.Helper()
+	got := count()
+	for range 100 {
+		if got == want {
+			return got
+		}
+		time.Sleep(10 * time.Millisecond)
+		got = count()
+	}
+	return got
 }
 
 func seedTaskToken(t *testing.T, db *storage.DB, taskID int64) error {

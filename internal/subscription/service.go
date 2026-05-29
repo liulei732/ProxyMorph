@@ -119,8 +119,7 @@ func (s *Service) generateTask(task storage.ConversionTask, relayHost string, pe
 	doc.Nodes = convert.MergeNodes(doc.Nodes, pinned, convert.MergeOptions{Mode: task.PinnedNodeOrderMode})
 	if s.vlessRelayEnabled(task) {
 		relayStartedAt := time.Now()
-		s.configureRelayHost(relayHost)
-		doc.Nodes, err = s.configureTaskVLESSRelays(task.ID, doc.Nodes)
+		doc.Nodes, err = s.configureTaskVLESSRelays(task.ID, doc.Nodes, relayHost)
 		if err != nil {
 			log.Printf("subscription task=%d stage=vless_relay status=error duration_ms=%d error=%q", task.ID, time.Since(relayStartedAt).Milliseconds(), err)
 			s.recordRun(task.ID, "error", err.Error())
@@ -274,21 +273,30 @@ func (s *Service) vlessRelayEnabled(task storage.ConversionTask) bool {
 	return enabled
 }
 
-func (s *Service) configureRelayHost(requestHost string) {
+func (s *Service) configureRelayHostLocked(requestHost string) error {
 	host := relayPublicHost(s.relayConfig.PublicHost, requestHost)
 	if host == s.relayConfig.PublicHost {
-		return
+		return nil
+	}
+	if s.vlessRelay != nil {
+		if err := s.vlessRelay.Stop(); err != nil {
+			return err
+		}
 	}
 	s.relayConfig.PublicHost = host
 	s.vlessRelay = singbox.NewManager(s.relayConfig)
+	return nil
 }
 
-func (s *Service) configureTaskVLESSRelays(taskID int64, nodes []convert.Node) ([]convert.Node, error) {
+func (s *Service) configureTaskVLESSRelays(taskID int64, nodes []convert.Node, relayHost string) ([]convert.Node, error) {
 	if s.vlessRelay == nil {
 		return nodes, nil
 	}
 	s.relayMu.Lock()
 	defer s.relayMu.Unlock()
+	if err := s.configureRelayHostLocked(relayHost); err != nil {
+		return nil, err
+	}
 	vlessNodes := make([]convert.Node, 0)
 	for _, node := range nodes {
 		if node.Protocol == "vless" {
