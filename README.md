@@ -44,6 +44,8 @@ The Docker image installs `sing-box`. ProxyMorph preserves VLESS nodes from Clas
 
 For local development, install `sing-box` with your platform package manager if you want to test external conversion behavior.
 
+See [`docs/troubleshooting.md`](docs/troubleshooting.md) for diagnosed conversion issues, including Trojan WebSocket SNI/Host handling and helper relay behavior.
+
 ## Development
 
 ```bash
