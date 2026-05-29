@@ -457,6 +457,104 @@ func TestRestoreVLESSRelayStartsTaskEnabledRelayWhenGlobalDisabled(t *testing.T)
 	}
 }
 
+func TestRestoreVLESSRelayRemapsPersistedPortsOutsideCurrentRange(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/a")
+	seedVLESSRelaySetting(t, db, true)
+	nodeJSON := `{"name":"Task A Edge","protocol":"vless","server":"a.example","port":443,"params":{"uuid":"f47ac10b-58cc-4372-a567-0e02b2c3d479","tls":"tls","sni":"a.example"}}`
+	if _, err := db.SQL().Exec(`
+		INSERT INTO vless_relay_entries (task_id, node_name, port, node_json, updated_at)
+		VALUES (1, 'Task A Edge', 18000, ?, CURRENT_TIMESTAMP)`, nodeJSON); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath := filepath.Join(t.TempDir(), "sing-box.json")
+	service := NewService(db, http.DefaultClient)
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   31800,
+		PortEnd:     31999,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  configPath,
+	})
+	defer service.Close()
+
+	if err := service.RestoreVLESSRelay(); err != nil {
+		t.Fatalf("RestoreVLESSRelay returned error: %v", err)
+	}
+	var storedPort int
+	if err := db.SQL().QueryRow(`SELECT port FROM vless_relay_entries WHERE task_id = 1 AND node_name = 'Task A Edge'`).Scan(&storedPort); err != nil {
+		t.Fatal(err)
+	}
+	if storedPort != 31800 {
+		t.Fatalf("stored relay port = %d, want 31800", storedPort)
+	}
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configText := string(configBytes)
+	if !strings.Contains(configText, `"listen_port": 31800`) || strings.Contains(configText, `"listen_port": 18000`) {
+		t.Fatalf("restored sing-box config should use remapped port:\n%s", configText)
+	}
+}
+
+func TestGenerateVLESSRelayRemapsPersistedPortsOutsideCurrentRange(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/a")
+	seedVLESSRelaySetting(t, db, true)
+	nodeJSON := `{"name":"Task A Edge","protocol":"vless","server":"old.example","port":443,"params":{"uuid":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}}`
+	if _, err := db.SQL().Exec(`
+		INSERT INTO vless_relay_entries (task_id, node_name, port, node_json, updated_at)
+		VALUES (1, 'Task A Edge', 18000, ?, CURRENT_TIMESTAMP)`, nodeJSON); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		uriList := "vless://f47ac10b-58cc-4372-a567-0e02b2c3d479@a.example:443?security=tls&sni=a.example&type=tcp#Task%20A%20Edge"
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(base64.StdEncoding.EncodeToString([]byte(uriList)))), Header: make(http.Header)}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   31800,
+		PortEnd:     31999,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+	defer service.Close()
+
+	output, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if !strings.Contains(output, "Task A Edge = socks5, proxy.example.test, 31800") || strings.Contains(output, "18000") {
+		t.Fatalf("generated output should use remapped port:\n%s", output)
+	}
+	var storedPort int
+	if err := db.SQL().QueryRow(`SELECT port FROM vless_relay_entries WHERE task_id = 1 AND node_name = 'Task A Edge'`).Scan(&storedPort); err != nil {
+		t.Fatal(err)
+	}
+	if storedPort != 31800 {
+		t.Fatalf("stored relay port = %d, want 31800", storedPort)
+	}
+}
+
 func TestGenerateClearsTaskRelayEntriesWhenRelayDisabled(t *testing.T) {
 	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

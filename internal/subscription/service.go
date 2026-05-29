@@ -383,7 +383,9 @@ func (s *Service) upsertTaskRelayEntries(taskID int64, nodes []convert.Node) (ma
 			usedRows.Close()
 			return nil, err
 		}
-		used[port] = true
+		if relayPortInRange(s.relayConfig, port) {
+			used[port] = true
+		}
 	}
 	if err := usedRows.Close(); err != nil {
 		return nil, err
@@ -399,7 +401,7 @@ func (s *Service) upsertTaskRelayEntries(taskID int64, nodes []convert.Node) (ma
 		}
 		keep[node.Name] = true
 		port := existing[node.Name]
-		if port == 0 {
+		if port == 0 || !relayPortInRange(s.relayConfig, port) || used[port] {
 			port = nextRelayPort(s.relayConfig, used)
 			if port == 0 {
 				return nil, fmt.Errorf("not enough VLESS relay ports: need %d, have %d", len(nodes), s.relayConfig.PortEnd-s.relayConfig.PortStart+1)
@@ -444,6 +446,10 @@ func nextRelayPort(cfg config.VLESSRelayConfig, used map[int]bool) int {
 	return 0
 }
 
+func relayPortInRange(cfg config.VLESSRelayConfig, port int) bool {
+	return port >= cfg.PortStart && port <= cfg.PortEnd
+}
+
 func (s *Service) RestoreVLESSRelay() error {
 	if s.vlessRelay == nil {
 		return nil
@@ -468,6 +474,9 @@ func (s *Service) hasRestorableVLESSRelays() (bool, error) {
 }
 
 func (s *Service) rebuildAndStartVLESSRelayLocked() error {
+	if err := s.normalizeRestorableRelayPortsLocked(); err != nil {
+		return err
+	}
 	relays, err := s.loadRelayEntries()
 	if err != nil {
 		return err
@@ -479,6 +488,65 @@ func (s *Service) rebuildAndStartVLESSRelayLocked() error {
 		return s.vlessRelay.Stop()
 	}
 	return s.vlessRelay.Start()
+}
+
+type relayPortReassignment struct {
+	TaskID   int64
+	NodeName string
+}
+
+func (s *Service) normalizeRestorableRelayPortsLocked() error {
+	tx, err := s.db.SQL().Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`
+		SELECT r.task_id, r.node_name, r.port
+		FROM vless_relay_entries r
+		JOIN conversion_tasks t ON t.id = r.task_id
+		WHERE t.enabled = 1
+		ORDER BY r.port ASC, r.task_id ASC, r.node_name ASC`)
+	if err != nil {
+		return err
+	}
+	used := make(map[int]bool)
+	reassign := make([]relayPortReassignment, 0)
+	for rows.Next() {
+		var taskID int64
+		var nodeName string
+		var port int
+		if err := rows.Scan(&taskID, &nodeName, &port); err != nil {
+			rows.Close()
+			return err
+		}
+		if relayPortInRange(s.relayConfig, port) && !used[port] {
+			used[port] = true
+			continue
+		}
+		reassign = append(reassign, relayPortReassignment{TaskID: taskID, NodeName: nodeName})
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, item := range reassign {
+		port := nextRelayPort(s.relayConfig, used)
+		if port == 0 {
+			return fmt.Errorf("not enough VLESS relay ports in configured range %d-%d", s.relayConfig.PortStart, s.relayConfig.PortEnd)
+		}
+		used[port] = true
+		if _, err := tx.Exec(`
+			UPDATE vless_relay_entries
+			SET port = ?, updated_at = ?
+			WHERE task_id = ? AND node_name = ?`,
+			port, time.Now().UTC().Format(time.RFC3339), item.TaskID, item.NodeName); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Service) loadRelayEntries() ([]singbox.Relay, error) {
