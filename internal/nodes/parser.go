@@ -245,14 +245,14 @@ func parseTrojan(u *url.URL) (convert.Node, error) {
 func copyTrojanSNI(params map[string]string, peer string, sni string) {
 	peer = strings.TrimSpace(peer)
 	sni = strings.TrimSpace(sni)
-	if peer != "" {
-		params["sni"] = peer
-		if sni != "" && sni != peer {
-			params["uri_sni"] = sni
+	if sni != "" {
+		params["sni"] = sni
+		if peer != "" && peer != sni {
+			params["peer"] = peer
 		}
 		return
 	}
-	copyParam(params, "sni", sni)
+	copyParam(params, "sni", peer)
 }
 
 func parseVLESS(u *url.URL) (convert.Node, error) {

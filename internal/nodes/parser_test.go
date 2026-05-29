@@ -37,7 +37,8 @@ func TestParseTrojanURIWithWebSocketTransport(t *testing.T) {
 	}
 	for key, want := range map[string]string{
 		"password": "secret",
-		"sni":      "peer.example.com",
+		"sni":      "sni.example.com",
+		"peer":     "peer.example.com",
 		"network":  "ws",
 		"ws_path":  "/video",
 		"ws_host":  "host.example.com",
@@ -51,7 +52,7 @@ func TestParseTrojanURIWithWebSocketTransport(t *testing.T) {
 	}
 }
 
-func TestParseTrojanURIPrefersPeerForSurgeSNI(t *testing.T) {
+func TestParseTrojanURIPreservesSNIWhenPeerIsPresent(t *testing.T) {
 	node, err := ParseURI("trojan://e87a39e7-fb6e-4c13-86f0-90d0ccf34972@resolution1.private.berry-is-sweet.com:2053?allowInsecure=0&peer=berrycdn-3.com&sni=17800261472322.berrycdn-3.com&type=ws&path=%2Fvideotahyjhghmuaawe&host=j1.berrycdn-3.com#%E8%B6%8A%E5%8D%97-CMI%E4%B8%93%E7%BA%BF1")
 	if err != nil {
 		t.Fatalf("ParseURI returned error: %v", err)
@@ -59,15 +60,15 @@ func TestParseTrojanURIPrefersPeerForSurgeSNI(t *testing.T) {
 	if node.Name != "越南-CMI专线1" || node.Protocol != "trojan" {
 		t.Fatalf("unexpected node: %#v", node)
 	}
-	if node.Params["sni"] != "berrycdn-3.com" {
-		t.Fatalf("sni = %q, want peer value berrycdn-3.com; params=%#v", node.Params["sni"], node.Params)
+	if node.Params["sni"] != "17800261472322.berrycdn-3.com" {
+		t.Fatalf("sni = %q, want URI sni value; params=%#v", node.Params["sni"], node.Params)
 	}
-	if node.Params["uri_sni"] != "17800261472322.berrycdn-3.com" {
-		t.Fatalf("uri_sni = %q, want original sni preserved; params=%#v", node.Params["uri_sni"], node.Params)
+	if node.Params["peer"] != "berrycdn-3.com" {
+		t.Fatalf("peer = %q, want original peer preserved; params=%#v", node.Params["peer"], node.Params)
 	}
 }
 
-func TestParseTrojanURIRendersPeerAsSurgeSNI(t *testing.T) {
+func TestParseTrojanURIRendersURIValueAsSurgeSNI(t *testing.T) {
 	node, err := ParseURI("trojan://e87a39e7-fb6e-4c13-86f0-90d0ccf34972@resolution1.private.berry-is-sweet.com:2053?allowInsecure=0&peer=berrycdn-3.com&sni=17800261472322.berrycdn-3.com&type=ws&path=%2Fvideotahyjhghmuaawe&host=j1.berrycdn-3.com#%E8%B6%8A%E5%8D%97-CMI%E4%B8%93%E7%BA%BF1")
 	if err != nil {
 		t.Fatalf("ParseURI returned error: %v", err)
@@ -76,7 +77,7 @@ func TestParseTrojanURIRendersPeerAsSurgeSNI(t *testing.T) {
 	for _, want := range []string{
 		"越南-CMI专线1 = trojan, resolution1.private.berry-is-sweet.com, 2053",
 		"password=e87a39e7-fb6e-4c13-86f0-90d0ccf34972",
-		"sni=berrycdn-3.com",
+		"sni=17800261472322.berrycdn-3.com",
 		"ws=true",
 		"ws-path=/videotahyjhghmuaawe",
 		"ws-headers=Host:j1.berrycdn-3.com",
@@ -85,8 +86,18 @@ func TestParseTrojanURIRendersPeerAsSurgeSNI(t *testing.T) {
 			t.Fatalf("output missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "sni=17800261472322.berrycdn-3.com") || strings.Contains(out, "uri_sni") {
-		t.Fatalf("output leaked original URI sni:\n%s", out)
+	if strings.Contains(out, "sni=berrycdn-3.com") || strings.Contains(out, "peer=") {
+		t.Fatalf("output leaked peer as Surge sni:\n%s", out)
+	}
+}
+
+func TestParseTrojanURIUsesPeerAsSNIWhenSNIIsMissing(t *testing.T) {
+	node, err := ParseURI("trojan://secret@example.com:443?peer=peer.example.com#Edge")
+	if err != nil {
+		t.Fatalf("ParseURI returned error: %v", err)
+	}
+	if node.Params["sni"] != "peer.example.com" {
+		t.Fatalf("sni = %q, want peer fallback; params=%#v", node.Params["sni"], node.Params)
 	}
 }
 
