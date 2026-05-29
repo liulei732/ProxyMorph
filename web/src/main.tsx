@@ -216,7 +216,8 @@ function App() {
   async function createTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const payload = Object.fromEntries(form);
     payload.refresh_interval_seconds = Number(payload.refresh_interval_seconds || 3600) as unknown as FormDataEntryValue;
     try {
@@ -226,7 +227,7 @@ function App() {
       notify(t.createFailed);
       return;
     }
-    event.currentTarget.reset();
+    formElement.reset();
     notify(t.taskList.created);
     try {
       await refresh();
@@ -239,7 +240,7 @@ function App() {
     event.preventDefault();
     const formElement = event.currentTarget;
     try {
-      const payload = Object.fromEntries(new FormData(event.currentTarget));
+      const payload = Object.fromEntries(new FormData(formElement));
       await api("/api/nodes/import", { method: "POST", body: JSON.stringify(payload) });
     } catch {
       notify(t.nodeList.importFailed);

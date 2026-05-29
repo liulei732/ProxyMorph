@@ -164,6 +164,17 @@ describe("task editor live summary binding", () => {
     assert.doesNotMatch(changePasswordBlock, /event\.currentTarget\.reset\(\)/);
   });
 
+  it("keeps stable form elements before awaiting create and import actions", () => {
+    const createTaskStart = source.indexOf("async function createTask");
+    const importNodesStart = source.indexOf("async function importNodes");
+    const createTaskBlock = source.slice(createTaskStart, importNodesStart);
+    const importNodesBlock = source.slice(importNodesStart, source.indexOf("async function deleteNode"));
+    assert.match(createTaskBlock, /const formElement = event\.currentTarget[\s\S]*new FormData\(formElement\)[\s\S]*formElement\.reset\(\)/);
+    assert.doesNotMatch(createTaskBlock, /event\.currentTarget\.reset\(\)/);
+    assert.match(importNodesBlock, /const formElement = event\.currentTarget[\s\S]*new FormData\(formElement\)[\s\S]*formElement\.reset\(\)/);
+    assert.doesNotMatch(importNodesBlock, /new FormData\(event\.currentTarget\)/);
+  });
+
   it("uses the clipboard helper instead of direct browser clipboard access", () => {
     assert.match(source, /import \{ copyTextToClipboard \} from "\.\/clipboard"/);
     assert.match(source, /copyTextToClipboard\(absoluteSubscriptionURL\(task\.SubscriptionURL\)\)/);
