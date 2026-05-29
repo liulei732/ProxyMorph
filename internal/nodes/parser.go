@@ -225,7 +225,7 @@ func parseTrojan(u *url.URL) (convert.Node, error) {
 	name, _ := url.PathUnescape(u.Fragment)
 	query := u.Query()
 	params := map[string]string{"password": u.User.Username()}
-	copyParam(params, "sni", query.Get("sni"))
+	copyTrojanSNI(params, query.Get("peer"), query.Get("sni"))
 	copyParam(params, "network", query.Get("type"))
 	copyParam(params, "ws_path", query.Get("path"))
 	copyParam(params, "ws_host", query.Get("host"))
@@ -240,6 +240,19 @@ func parseTrojan(u *url.URL) (convert.Node, error) {
 		Params:   params,
 		Pinned:   true,
 	}, nil
+}
+
+func copyTrojanSNI(params map[string]string, peer string, sni string) {
+	peer = strings.TrimSpace(peer)
+	sni = strings.TrimSpace(sni)
+	if peer != "" {
+		params["sni"] = peer
+		if sni != "" && sni != peer {
+			params["uri_sni"] = sni
+		}
+		return
+	}
+	copyParam(params, "sni", sni)
 }
 
 func parseVLESS(u *url.URL) (convert.Node, error) {

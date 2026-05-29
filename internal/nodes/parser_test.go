@@ -1,6 +1,11 @@
 package nodes
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/liulei/proxymorph/internal/convert"
+)
 
 func TestParseShadowsocksURI(t *testing.T) {
 	node, err := ParseURI("ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388#Home")
@@ -32,7 +37,7 @@ func TestParseTrojanURIWithWebSocketTransport(t *testing.T) {
 	}
 	for key, want := range map[string]string{
 		"password": "secret",
-		"sni":      "sni.example.com",
+		"sni":      "peer.example.com",
 		"network":  "ws",
 		"ws_path":  "/video",
 		"ws_host":  "host.example.com",
@@ -43,6 +48,45 @@ func TestParseTrojanURIWithWebSocketTransport(t *testing.T) {
 	}
 	if node.Params["skip_cert_verify"] != "" {
 		t.Fatalf("skip_cert_verify = %q, want empty", node.Params["skip_cert_verify"])
+	}
+}
+
+func TestParseTrojanURIPrefersPeerForSurgeSNI(t *testing.T) {
+	node, err := ParseURI("trojan://e87a39e7-fb6e-4c13-86f0-90d0ccf34972@resolution1.private.berry-is-sweet.com:2053?allowInsecure=0&peer=berrycdn-3.com&sni=17800261472322.berrycdn-3.com&type=ws&path=%2Fvideotahyjhghmuaawe&host=j1.berrycdn-3.com#%E8%B6%8A%E5%8D%97-CMI%E4%B8%93%E7%BA%BF1")
+	if err != nil {
+		t.Fatalf("ParseURI returned error: %v", err)
+	}
+	if node.Name != "越南-CMI专线1" || node.Protocol != "trojan" {
+		t.Fatalf("unexpected node: %#v", node)
+	}
+	if node.Params["sni"] != "berrycdn-3.com" {
+		t.Fatalf("sni = %q, want peer value berrycdn-3.com; params=%#v", node.Params["sni"], node.Params)
+	}
+	if node.Params["uri_sni"] != "17800261472322.berrycdn-3.com" {
+		t.Fatalf("uri_sni = %q, want original sni preserved; params=%#v", node.Params["uri_sni"], node.Params)
+	}
+}
+
+func TestParseTrojanURIRendersPeerAsSurgeSNI(t *testing.T) {
+	node, err := ParseURI("trojan://e87a39e7-fb6e-4c13-86f0-90d0ccf34972@resolution1.private.berry-is-sweet.com:2053?allowInsecure=0&peer=berrycdn-3.com&sni=17800261472322.berrycdn-3.com&type=ws&path=%2Fvideotahyjhghmuaawe&host=j1.berrycdn-3.com#%E8%B6%8A%E5%8D%97-CMI%E4%B8%93%E7%BA%BF1")
+	if err != nil {
+		t.Fatalf("ParseURI returned error: %v", err)
+	}
+	out := convert.RenderSurge6([]convert.Node{node}, nil, nil)
+	for _, want := range []string{
+		"越南-CMI专线1 = trojan, resolution1.private.berry-is-sweet.com, 2053",
+		"password=e87a39e7-fb6e-4c13-86f0-90d0ccf34972",
+		"sni=berrycdn-3.com",
+		"ws=true",
+		"ws-path=/videotahyjhghmuaawe",
+		"ws-headers=Host:j1.berrycdn-3.com",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "sni=17800261472322.berrycdn-3.com") || strings.Contains(out, "uri_sni") {
+		t.Fatalf("output leaked original URI sni:\n%s", out)
 	}
 }
 
