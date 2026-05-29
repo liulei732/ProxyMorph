@@ -16,7 +16,10 @@ COPY --from=web /src/web/dist ./internal/web/dist
 RUN CGO_ENABLED=0 go build -o /out/proxymorph ./cmd/proxymorph
 
 FROM alpine:edge
-RUN apk add --no-cache ca-certificates sing-box
+ENV TZ=Asia/Shanghai
+RUN apk add --no-cache ca-certificates sing-box tzdata \
+    && cp /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone
 WORKDIR /app
 COPY --from=build /out/proxymorph /app/proxymorph
 VOLUME ["/data"]
