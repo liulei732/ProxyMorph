@@ -35,6 +35,12 @@ Do not expose the current service directly to the public internet without a reve
    - Risk: SSRF, hanging requests, and memory pressure from large responses.
    - Recommended fix: allow only `http`/`https`, add client timeout, limit response size, and block loopback/private/link-local destinations after DNS resolution.
 
+## Completed Hardening
+
+- 2026-05-29: Added login throttling for repeated failures.
+- 2026-05-29: Added expiring signed sessions and `Secure` cookies for HTTPS requests.
+- 2026-05-29: Added subscription source fetch timeout, response size limit, URL scheme validation, and private/local address blocking.
+
 ## Medium Priority
 
 1. Public subscription token lifecycle

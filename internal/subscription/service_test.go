@@ -1,8 +1,10 @@
 package subscription
 
 import (
+	"context"
 	"encoding/base64"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -41,6 +43,54 @@ func TestGenerateMergesPinnedNodes(t *testing.T) {
 	}
 	if !strings.Contains(output, "Remote = ss") || !strings.Contains(output, "Pinned = trojan") {
 		t.Fatalf("expected remote and pinned nodes in output:\n%s", output)
+	}
+}
+
+func TestFetchRejectsUnsafeSourceURLs(t *testing.T) {
+	service := NewService(nil, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		t.Fatalf("unsafe source URL should not be fetched: %s", r.URL.String())
+		return nil, nil
+	})})
+
+	for _, sourceURL := range []string{
+		"file:///etc/passwd",
+		"http://127.0.0.1:8080/sub",
+		"http://localhost/sub",
+	} {
+		if _, err := service.fetch(sourceURL); err == nil {
+			t.Fatalf("fetch(%q) returned nil error, want rejection", sourceURL)
+		}
+	}
+}
+
+func TestFetchRejectsPrivateResolvedAddress(t *testing.T) {
+	service := NewService(nil, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		t.Fatalf("private resolved source URL should not be fetched: %s", r.URL.String())
+		return nil, nil
+	})})
+	service.lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("10.0.0.10")}, nil
+	}
+
+	if _, err := service.fetch("https://private.example/sub"); err == nil {
+		t.Fatal("fetch returned nil error, want private network rejection")
+	}
+}
+
+func TestFetchLimitsResponseSize(t *testing.T) {
+	service := NewService(nil, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(strings.Repeat("a", maxSubscriptionBytes+1))),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	service.lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("198.51.100.10")}, nil
+	}
+
+	if _, err := service.fetch("https://upstream.example/sub"); err == nil {
+		t.Fatal("fetch returned nil error, want size limit error")
 	}
 }
 

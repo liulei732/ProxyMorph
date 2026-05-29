@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +30,7 @@ import (
 type Service struct {
 	db          *storage.DB
 	client      *http.Client
+	lookupIP    func(context.Context, string) ([]net.IP, error)
 	nodes       *nodes.Service
 	tasks       *tasks.Service
 	vlessRelay  *singbox.Manager
@@ -37,9 +40,26 @@ type Service struct {
 
 func NewService(db *storage.DB, client *http.Client) *Service {
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Timeout: 20 * time.Second}
 	}
-	return &Service{db: db, client: client, nodes: nodes.NewService(db), tasks: tasks.NewService(db)}
+	if client.Timeout == 0 {
+		next := *client
+		next.Timeout = 20 * time.Second
+		client = &next
+	}
+	service := &Service{
+		db:     db,
+		client: client,
+		nodes:  nodes.NewService(db),
+		tasks:  tasks.NewService(db),
+	}
+	if client.Transport == nil {
+		resolver := net.DefaultResolver
+		service.lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
+			return resolver.LookupIP(ctx, "ip", host)
+		}
+	}
+	return service
 }
 
 func (s *Service) SetVLESSRelay(cfg config.VLESSRelayConfig) {
@@ -792,6 +812,9 @@ func textLines(text string) []string {
 }
 
 func (s *Service) fetch(sourceURL string) ([]byte, error) {
+	if err := s.validateSourceURL(sourceURL); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequest(http.MethodGet, sourceURL, nil)
 	if err != nil {
 		return nil, err
@@ -804,7 +827,65 @@ func (s *Service) fetch(sourceURL string) ([]byte, error) {
 	if res.StatusCode < 200 || res.StatusCode > 299 {
 		return nil, fmt.Errorf("upstream returned status %d", res.StatusCode)
 	}
-	return io.ReadAll(res.Body)
+	content, err := io.ReadAll(io.LimitReader(res.Body, maxSubscriptionBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > maxSubscriptionBytes {
+		return nil, fmt.Errorf("upstream response is too large")
+	}
+	return content, nil
+}
+
+const maxSubscriptionBytes = 5 * 1024 * 1024
+
+func (s *Service) validateSourceURL(sourceURL string) error {
+	parsed, err := url.Parse(sourceURL)
+	if err != nil || parsed.Hostname() == "" {
+		return fmt.Errorf("subscription source url is invalid")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("subscription source url must use http or https")
+	}
+	host := parsed.Hostname()
+	if isLocalSourceHostname(host) {
+		return fmt.Errorf("subscription source url must not point to a private or local address")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if !isPublicSourceIP(ip) {
+			return fmt.Errorf("subscription source url must not point to a private or local address")
+		}
+		return nil
+	}
+	if s.lookupIP == nil {
+		return nil
+	}
+	ips, err := s.lookupIP(context.Background(), host)
+	if err != nil {
+		return err
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("subscription source host has no addresses")
+	}
+	if slices.ContainsFunc(ips, func(ip net.IP) bool { return !isPublicSourceIP(ip) }) {
+		return fmt.Errorf("subscription source url must not resolve to a private or local address")
+	}
+	return nil
+}
+
+func isLocalSourceHostname(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	return host == "localhost" || strings.HasSuffix(host, ".localhost")
+}
+
+func isPublicSourceIP(ip net.IP) bool {
+	return ip != nil &&
+		!ip.IsLoopback() &&
+		!ip.IsPrivate() &&
+		!ip.IsLinkLocalUnicast() &&
+		!ip.IsLinkLocalMulticast() &&
+		!ip.IsUnspecified() &&
+		!ip.IsMulticast()
 }
 
 func (s *Service) effectivePinnedNodes(task storage.ConversionTask) ([]convert.Node, error) {

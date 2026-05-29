@@ -3,7 +3,9 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/liulei/proxymorph/internal/httpapi"
 )
@@ -21,17 +23,26 @@ func (h Handler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	limitKey := loginLimitKey(r, input.Username)
+	if !h.Service.AllowLoginAttempt(limitKey) {
+		httpapi.Error(w, http.StatusTooManyRequests, "too many login attempts")
+		return
+	}
 	user, err := h.Service.Authenticate(input.Username, input.Password)
 	if err != nil {
+		h.Service.RecordLoginFailure(limitKey)
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
+	h.Service.RecordLoginSuccess(limitKey)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "proxymorph_session",
 		Value:    h.Service.SignUserID(user.ID),
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   requestIsHTTPS(r),
 		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(SessionDuration.Seconds()),
 	})
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"ok":true}`))
@@ -47,6 +58,21 @@ func (h Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 	})
 	httpapi.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func loginLimitKey(r *http.Request, username string) string {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err != nil || host == "" {
+		host = strings.TrimSpace(r.RemoteAddr)
+	}
+	return strings.ToLower(strings.TrimSpace(username)) + "|" + host
+}
+
+func requestIsHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func (h Handler) Me(w http.ResponseWriter, r *http.Request) {

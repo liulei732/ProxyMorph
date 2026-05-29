@@ -3,6 +3,7 @@ package auth
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/liulei/proxymorph/internal/storage"
 )
@@ -27,6 +28,21 @@ func TestEnsureAdminAndAuthenticate(t *testing.T) {
 	}
 	if _, err := service.Authenticate("admin", "wrong"); err == nil {
 		t.Fatal("expected wrong password error")
+	}
+}
+
+func TestSignedSessionExpires(t *testing.T) {
+	service := NewService(nil, []byte("test-secret"))
+	token := service.SignUserID(42)
+	userID, ok := service.VerifyToken(token)
+	if !ok || userID != 42 {
+		t.Fatalf("fresh token verification = (%d, %t), want (42, true)", userID, ok)
+	}
+	service.now = func() time.Time {
+		return time.Now().Add(25 * time.Hour)
+	}
+	if userID, ok := service.VerifyToken(token); ok {
+		t.Fatalf("expired token verification = (%d, true), want false", userID)
 	}
 }
 

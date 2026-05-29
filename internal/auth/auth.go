@@ -8,7 +8,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/liulei/proxymorph/internal/storage"
 	"golang.org/x/crypto/bcrypt"
@@ -18,14 +21,23 @@ var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 
 const adminPasswordSourceDigestSettingKey = "admin_password_source_digest"
+const SessionDuration = 24 * time.Hour
 
 type Service struct {
-	db     *storage.DB
-	secret []byte
+	db            *storage.DB
+	secret        []byte
+	now           func() time.Time
+	loginAttempts map[string]loginAttempt
+	loginMu       sync.Mutex
 }
 
 func NewService(db *storage.DB, secret []byte) *Service {
-	return &Service{db: db, secret: secret}
+	return &Service{
+		db:            db,
+		secret:        secret,
+		now:           time.Now,
+		loginAttempts: make(map[string]loginAttempt),
+	}
 }
 
 func (s *Service) EnsureAdmin(username, password string) error {
@@ -125,7 +137,8 @@ func (s *Service) ChangePassword(userID int64, currentPassword, newPassword stri
 }
 
 func (s *Service) SignUserID(userID int64) string {
-	payload := fmt.Sprint(userID)
+	expiresAt := s.now().Add(SessionDuration).Unix()
+	payload := fmt.Sprintf("%d:%d", userID, expiresAt)
 	mac := hmac.New(sha256.New, s.secret)
 	mac.Write([]byte(payload))
 	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
@@ -143,11 +156,67 @@ func (s *Service) VerifyToken(token string) (int64, bool) {
 	if !hmac.Equal([]byte(parts[1]), []byte(want)) {
 		return 0, false
 	}
+	payloadParts := strings.Split(parts[0], ":")
+	if len(payloadParts) == 1 {
+		var id int64
+		if _, err := fmt.Sscan(payloadParts[0], &id); err != nil {
+			return 0, false
+		}
+		return id, true
+	}
+	if len(payloadParts) != 2 {
+		return 0, false
+	}
 	var id int64
-	if _, err := fmt.Sscan(parts[0], &id); err != nil {
+	if _, err := fmt.Sscan(payloadParts[0], &id); err != nil {
+		return 0, false
+	}
+	expiresAt, err := strconv.ParseInt(payloadParts[1], 10, 64)
+	if err != nil || expiresAt <= s.now().Unix() {
 		return 0, false
 	}
 	return id, true
+}
+
+type loginAttempt struct {
+	Count     int
+	FirstSeen time.Time
+	LockedTil time.Time
+}
+
+func (s *Service) AllowLoginAttempt(key string) bool {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	now := s.now()
+	attempt := s.loginAttempts[key]
+	if !attempt.LockedTil.IsZero() && now.Before(attempt.LockedTil) {
+		return false
+	}
+	if now.Sub(attempt.FirstSeen) > 10*time.Minute {
+		delete(s.loginAttempts, key)
+	}
+	return true
+}
+
+func (s *Service) RecordLoginFailure(key string) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	now := s.now()
+	attempt := s.loginAttempts[key]
+	if attempt.FirstSeen.IsZero() || now.Sub(attempt.FirstSeen) > 10*time.Minute {
+		attempt = loginAttempt{FirstSeen: now}
+	}
+	attempt.Count++
+	if attempt.Count >= 5 {
+		attempt.LockedTil = now.Add(15 * time.Minute)
+	}
+	s.loginAttempts[key] = attempt
+}
+
+func (s *Service) RecordLoginSuccess(key string) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	delete(s.loginAttempts, key)
 }
 
 func (s *Service) UserByID(ctx context.Context, id int64) (storage.User, error) {

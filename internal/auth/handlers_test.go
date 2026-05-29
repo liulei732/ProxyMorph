@@ -27,6 +27,63 @@ func TestHandlerLogoutClearsSessionCookie(t *testing.T) {
 	}
 }
 
+func TestHandlerLoginSetsExpiringSecureCookieForHTTPS(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service := NewService(db, []byte("test-secret"))
+	if err := service.EnsureAdmin("admin", "password"); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "https://proxymorph.example/api/login", strings.NewReader(`{"username":"admin","password":"password"}`))
+	res := httptest.NewRecorder()
+
+	Handler{Service: service}.Login(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", res.Code, res.Body.String())
+	}
+	cookies := res.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected one cookie, got %#v", cookies)
+	}
+	cookie := cookies[0]
+	if cookie.Name != "proxymorph_session" || !cookie.HttpOnly || !cookie.Secure || cookie.MaxAge <= 0 {
+		t.Fatalf("session cookie missing security attributes: %#v", cookie)
+	}
+}
+
+func TestHandlerLoginRateLimitsRepeatedFailures(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service := NewService(db, []byte("test-secret"))
+	if err := service.EnsureAdmin("admin", "password"); err != nil {
+		t.Fatal(err)
+	}
+	handler := Handler{Service: service}
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"admin","password":"wrong-password"}`))
+		req.RemoteAddr = "203.0.113.10:12345"
+		res := httptest.NewRecorder()
+		handler.Login(res, req)
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d status = %d body=%s", i+1, res.Code, res.Body.String())
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"admin","password":"password"}`))
+	req.RemoteAddr = "203.0.113.10:12345"
+	res := httptest.NewRecorder()
+	handler.Login(res, req)
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("rate limited login status = %d body=%s", res.Code, res.Body.String())
+	}
+}
+
 func TestHandlerChangePasswordUsesAuthenticatedUser(t *testing.T) {
 	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
