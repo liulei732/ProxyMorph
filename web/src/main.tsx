@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { AlertCircle, Copy, Eye, KeyRound, Layers, LogOut, Pencil, Play, Plus, RefreshCw, Save, Search, Server, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { api } from "./api";
+import { copyTextToClipboard } from "./clipboard";
 import { getInitialLanguage, languageStorageKey, languages, translations, type Language } from "./i18n";
 import { absoluteSubscriptionURL as buildAbsoluteSubscriptionURL, enabledManagedHeaderPreviewFromValues, managedHeaderPreviewFromValues, type GlobalManagedURLMode, type ManagedConfigDefaults, type ManagedIntervalMode, type ManagedPreviewValues, type ManagedURLMode, type RuleMergeMode, type TriStateMode, type VLESSRelayMode } from "./managedPreview";
 import { createPolicyGroup, membersFromText, parsePolicyGroupsText, policyGroupLine, policyGroupsText, type PolicyGroup, type PolicyGroupType } from "./policyGroups";
@@ -746,8 +747,8 @@ function TaskRow({
   }, [editing, task.ID]);
 
   async function copyURL() {
-    await navigator.clipboard.writeText(absoluteSubscriptionURL(task.SubscriptionURL));
-    onCopy(t.copied);
+    const copied = await copyTextToClipboard(absoluteSubscriptionURL(task.SubscriptionURL));
+    onCopy(copied ? t.copied : t.copyFailed);
   }
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
@@ -1445,8 +1446,8 @@ function NodeManagement({ nodes, t, placeholder, onImport, onDelete, onBatch, on
   });
 
   async function copyNodeName(name: string) {
-    await navigator.clipboard.writeText(name);
-    onCopy(t.nodeList.copiedName);
+    const copied = await copyTextToClipboard(name);
+    onCopy(copied ? t.nodeList.copiedName : t.copyFailed);
   }
 
   function toggleNode(id: number) {

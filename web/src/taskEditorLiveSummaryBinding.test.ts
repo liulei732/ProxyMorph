@@ -152,4 +152,11 @@ describe("task editor live summary binding", () => {
     assert.match(source, /AccountMenu/);
     assert.match(source, /ChangePasswordDialog/);
   });
+
+  it("uses the clipboard helper instead of direct browser clipboard access", () => {
+    assert.match(source, /import \{ copyTextToClipboard \} from "\.\/clipboard"/);
+    assert.match(source, /copyTextToClipboard\(absoluteSubscriptionURL\(task\.SubscriptionURL\)\)/);
+    assert.match(source, /copyTextToClipboard\(name\)/);
+    assert.doesNotMatch(source, /navigator\.clipboard\.writeText/);
+  });
 });
