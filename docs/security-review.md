@@ -55,4 +55,4 @@ Do not expose the current service directly to the public internet without a reve
 
 ## HTTPS/IP Deployment Note
 
-Browsers only expose the modern Clipboard API in secure contexts. Plain `http://server-ip:8080` can break copy actions. For public deployment, use a domain name with a trusted TLS certificate through a reverse proxy. For direct IP access, HTTPS is usually not enough unless the certificate is trusted for that IP address.
+Browsers only expose the modern Clipboard API in secure contexts. Plain `http://server-ip:28888` can break copy actions. For public deployment, use a domain name with a trusted TLS certificate through a reverse proxy. For direct IP access, HTTPS is usually not enough unless the certificate is trusted for that IP address.

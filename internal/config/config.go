@@ -36,7 +36,7 @@ func Load() (Config, error) {
 	publicBaseURL := os.Getenv("PROXYMORPH_PUBLIC_BASE_URL")
 	dataDir := env("PROXYMORPH_DATA_DIR", "/data")
 	cfg := Config{
-		Addr:                 env("PROXYMORPH_ADDR", ":8080"),
+		Addr:                 env("PROXYMORPH_ADDR", ":28888"),
 		DataDir:              dataDir,
 		PublicBaseURL:        publicBaseURL,
 		InitialAdminUsername: env("PROXYMORPH_ADMIN_USERNAME", "admin"),
@@ -70,11 +70,11 @@ func randomSecret() string {
 }
 
 func loadVLESSRelayConfig(publicBaseURL, dataDir string) (VLESSRelayConfig, error) {
-	portStart, err := envInt("PROXYMORPH_VLESS_RELAY_PORT_START", 18000)
+	portStart, err := envInt("PROXYMORPH_VLESS_RELAY_PORT_START", 31800)
 	if err != nil {
 		return VLESSRelayConfig{}, err
 	}
-	portEnd, err := envInt("PROXYMORPH_VLESS_RELAY_PORT_END", 18099)
+	portEnd, err := envInt("PROXYMORPH_VLESS_RELAY_PORT_END", 31999)
 	if err != nil {
 		return VLESSRelayConfig{}, err
 	}

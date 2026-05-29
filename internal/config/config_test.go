@@ -23,8 +23,8 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if cfg.Addr != ":8080" {
-		t.Fatalf("Addr = %q, want :8080", cfg.Addr)
+	if cfg.Addr != ":28888" {
+		t.Fatalf("Addr = %q, want :28888", cfg.Addr)
 	}
 	if cfg.DataDir != "/data" {
 		t.Fatalf("DataDir = %q, want /data", cfg.DataDir)
@@ -32,7 +32,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.VLESSRelay.Enabled {
 		t.Fatal("VLESS relay should be disabled by default")
 	}
-	if cfg.VLESSRelay.PortStart != 18000 || cfg.VLESSRelay.PortEnd != 18099 {
+	if cfg.VLESSRelay.PortStart != 31800 || cfg.VLESSRelay.PortEnd != 31999 {
 		t.Fatalf("unexpected VLESS relay port range: %#v", cfg.VLESSRelay)
 	}
 }

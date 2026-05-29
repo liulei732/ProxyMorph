@@ -19,7 +19,9 @@ ProxyMorph is a self-hosted proxy subscription conversion and orchestration serv
 docker compose up -d --build
 ```
 
-Open `http://localhost:8080`, then log in with the configured administrator credentials.
+Open `http://localhost:28888`, then log in with the configured administrator credentials.
+
+The default compose file uses `network_mode: host` for Linux servers. This keeps `docker ps` readable instead of expanding the full VLESS relay port range. If you run ProxyMorph on Docker Desktop, replace host networking with explicit port mappings for `28888` and `31800-31999`.
 
 Change `PROXYMORPH_ADMIN_PASSWORD` and `PROXYMORPH_SESSION_SECRET` before exposing the service beyond localhost.
 
@@ -27,12 +29,14 @@ Change `PROXYMORPH_ADMIN_PASSWORD` and `PROXYMORPH_SESSION_SECRET` before exposi
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `PROXYMORPH_ADDR` | `:8080` | HTTP listen address. |
+| `PROXYMORPH_ADDR` | `:28888` | HTTP listen address. |
 | `PROXYMORPH_DATA_DIR` | `/data` | Directory for SQLite database and runtime data. |
 | `PROXYMORPH_PUBLIC_BASE_URL` | empty | Base URL used when showing generated subscription links. |
 | `PROXYMORPH_ADMIN_USERNAME` | `admin` | Initial administrator username. |
 | `PROXYMORPH_ADMIN_PASSWORD` | empty | Initial administrator password. Uses `admin` only when empty during first boot. |
 | `PROXYMORPH_SESSION_SECRET` | random dev secret | Secret used to sign admin sessions. Set a stable strong value in production. |
+| `PROXYMORPH_VLESS_RELAY_PORT_START` | `31800` | First sing-box relay port used for VLESS helper conversion. |
+| `PROXYMORPH_VLESS_RELAY_PORT_END` | `31999` | Last sing-box relay port used for VLESS helper conversion. |
 
 ## VLESS And sing-box
 

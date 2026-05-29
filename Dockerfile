@@ -23,5 +23,5 @@ RUN apk add --no-cache ca-certificates sing-box tzdata \
 WORKDIR /app
 COPY --from=build /out/proxymorph /app/proxymorph
 VOLUME ["/data"]
-EXPOSE 8080
+EXPOSE 28888
 ENTRYPOINT ["/app/proxymorph"]
