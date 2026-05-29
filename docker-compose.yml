@@ -1,6 +1,7 @@
 services:
   proxymorph:
     build: .
+    restart: unless-stopped
     ports:
       - "8080:8080"
       - "18000-18099:18000-18099"
