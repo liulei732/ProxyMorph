@@ -191,7 +191,8 @@ function App() {
 
   async function changePassword(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const currentPassword = String(form.get("current_password") || "");
     const newPassword = String(form.get("new_password") || "");
     const confirmPassword = String(form.get("confirm_password") || "");
@@ -205,7 +206,7 @@ function App() {
       notify(t.account.passwordChangeFailed);
       return;
     }
-    event.currentTarget.reset();
+    formElement.reset();
     setShowPasswordDialog(false);
     notify(t.account.passwordChanged);
   }

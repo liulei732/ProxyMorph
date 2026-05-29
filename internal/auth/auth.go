@@ -17,6 +17,8 @@ import (
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 
+const adminPasswordSourceDigestSettingKey = "admin_password_source_digest"
+
 type Service struct {
 	db     *storage.DB
 	secret []byte
@@ -39,6 +41,23 @@ func (s *Service) EnsureAdmin(username, password string) error {
 		if !passwordConfigured {
 			return nil
 		}
+		digest := passwordSourceDigest(username, password)
+		known, err := s.setting(adminPasswordSourceDigestSettingKey)
+		if err != nil {
+			return err
+		}
+		if known == digest {
+			return nil
+		}
+		if known == "" {
+			modified, err := s.userPasswordWasModified(username)
+			if err != nil {
+				return err
+			}
+			if modified {
+				return s.setSetting(adminPasswordSourceDigestSettingKey, digest)
+			}
+		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
 			return err
@@ -52,7 +71,7 @@ func (s *Service) EnsureAdmin(username, password string) error {
 			return err
 		}
 		if affected > 0 {
-			return nil
+			return s.setSetting(adminPasswordSourceDigestSettingKey, digest)
 		}
 	}
 	if !passwordConfigured {
@@ -62,8 +81,13 @@ func (s *Service) EnsureAdmin(username, password string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES (?, ?)`, username, string(hash))
-	return err
+	if _, err := s.db.SQL().Exec(`INSERT INTO users (username, password_hash) VALUES (?, ?)`, username, string(hash)); err != nil {
+		return err
+	}
+	if passwordConfigured {
+		return s.setSetting(adminPasswordSourceDigestSettingKey, passwordSourceDigest(username, password))
+	}
+	return nil
 }
 
 func (s *Service) Authenticate(username, password string) (storage.User, error) {
@@ -130,4 +154,40 @@ func (s *Service) UserByID(ctx context.Context, id int64) (storage.User, error) 
 	var user storage.User
 	err := s.db.SQL().QueryRowContext(ctx, `SELECT id, username, password_hash FROM users WHERE id = ?`, id).Scan(&user.ID, &user.Username, &user.PasswordHash)
 	return user, err
+}
+
+func passwordSourceDigest(username, password string) string {
+	sum := sha256.Sum256([]byte(username + "\x00" + password))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+func (s *Service) setting(key string) (string, error) {
+	var value string
+	err := s.db.SQL().QueryRow(`SELECT value FROM app_settings WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
+}
+
+func (s *Service) setSetting(key, value string) error {
+	_, err := s.db.SQL().Exec(`
+		INSERT INTO app_settings (key, value, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+		key, value,
+	)
+	return err
+}
+
+func (s *Service) userPasswordWasModified(username string) (bool, error) {
+	var createdAt, updatedAt string
+	err := s.db.SQL().QueryRow(`SELECT created_at, updated_at FROM users WHERE username = ?`, username).Scan(&createdAt, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(createdAt) != strings.TrimSpace(updatedAt), nil
 }

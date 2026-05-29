@@ -153,6 +153,14 @@ describe("task editor live summary binding", () => {
     assert.match(source, /ChangePasswordDialog/);
   });
 
+  it("keeps a stable password form element before awaiting the password update", () => {
+    const changePasswordStart = source.indexOf("async function changePassword");
+    const createTaskStart = source.indexOf("async function createTask");
+    const changePasswordBlock = source.slice(changePasswordStart, createTaskStart);
+    assert.match(changePasswordBlock, /const formElement = event\.currentTarget[\s\S]*new FormData\(formElement\)[\s\S]*formElement\.reset\(\)/);
+    assert.doesNotMatch(changePasswordBlock, /event\.currentTarget\.reset\(\)/);
+  });
+
   it("uses the clipboard helper instead of direct browser clipboard access", () => {
     assert.match(source, /import \{ copyTextToClipboard \} from "\.\/clipboard"/);
     assert.match(source, /copyTextToClipboard\(absoluteSubscriptionURL\(task\.SubscriptionURL\)\)/);
