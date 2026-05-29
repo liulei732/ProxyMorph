@@ -1470,7 +1470,6 @@ function NodeList({ nodes, totalNodes, t, query, filter, selectedNodeIDs, onQuer
           <span>{t.nodeList.title}</span>
           <span>{t.nodeList.protocols}</span>
           <span>{t.nodeList.enabled}</span>
-          <span>{t.nodeList.manual}</span>
           <span>{t.forms.save}</span>
         </div>
         {nodes.length ? nodes.map((node) => (
@@ -1482,7 +1481,6 @@ function NodeList({ nodes, totalNodes, t, query, filter, selectedNodeIDs, onQuer
             </div>
             <span className="badge">{node.Protocol}</span>
             <span className={node.Enabled ? "status-success" : ""}>{node.Enabled ? t.nodeList.enabled : t.nodeList.disabled}</span>
-            <span>{t.nodeList.manual}</span>
             <div className="node-row-actions">
               <button type="button" className="node-action-button" title={t.nodeList.copyName} onClick={() => onCopyName(node.Name)}><Copy size={15} /></button>
               <button type="button" className="node-action-button danger" title={t.nodeList.delete} onClick={() => onDelete(node.ID)}><Trash2 size={15} /></button>

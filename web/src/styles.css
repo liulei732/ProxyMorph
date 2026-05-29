@@ -89,7 +89,7 @@ h1, h2, h3, p { margin-top: 0; }
 .node-selected-count { display: inline-flex; align-items: center; min-height: 32px; border: 1px solid var(--line); border-radius: 999px; padding: 0 10px; color: var(--muted); background: white; font-size: 12px; font-weight: 780; }
 .node-selected-count.active { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
 .node-table { display: grid; }
-.node-table-head, .node-table-row { display: grid; grid-template-columns: 30px minmax(240px, 1.4fr) 0.55fr 0.45fr 0.45fr auto; gap: 12px; align-items: center; padding: 0 18px; }
+.node-table-head, .node-table-row { display: grid; grid-template-columns: 30px minmax(260px, 1.6fr) 0.55fr 0.45fr auto; gap: 12px; align-items: center; padding: 0 18px; }
 .node-table-head { min-height: 40px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 850; }
 .node-table-row { min-height: 66px; border-bottom: 1px solid var(--line); }
 .node-table-row:last-child { border-bottom: 0; }

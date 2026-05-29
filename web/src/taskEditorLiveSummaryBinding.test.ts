@@ -134,4 +134,11 @@ describe("task editor live summary binding", () => {
     assert.match(styles, /\.node-action-button/);
     assert.doesNotMatch(source, /className="row" key=\{node\.ID\}[\s\S]*danger-button/);
   });
+
+  it("does not show the obsolete manual source column in pinned nodes", () => {
+    const nodeListStart = source.indexOf("function NodeList");
+    const nodeListBlock = source.slice(nodeListStart, source.indexOf("function nodeFilterLabel"));
+    assert.doesNotMatch(nodeListBlock, /nodeList\.manual/);
+    assert.doesNotMatch(styles, /30px minmax\(240px, 1\.4fr\) 0\.55fr 0\.45fr 0\.45fr auto/);
+  });
 });
