@@ -20,6 +20,7 @@ proxies:
     server: edge.example.com
     port: 443
     password: secret
+    udp: true
     sni: edge.example.com
     skip-cert-verify: true
     network: ws
@@ -48,6 +49,7 @@ rules:
 		"[Proxy]",
 		"HK 1 = ss, hk.example.com, 8388",
 		"Edge = trojan, edge.example.com, 443",
+		"udp-relay=true",
 		"skip-cert-verify=true",
 		"ws=true",
 		"ws-path=/trojan",

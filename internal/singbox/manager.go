@@ -182,19 +182,23 @@ func (m *Manager) ConfigureRelays(relays []Relay) error {
 	}
 	cfg := singBoxConfig{Log: singBoxLog{Level: "warn"}}
 	for _, relay := range relays {
-		if relay.Node.Protocol != "vless" {
+		if !isRelayableProtocol(relay.Node) {
 			continue
 		}
-		if relay.Node.Params["uuid"] == "" {
-			return fmt.Errorf("vless node %q uuid is required", relay.Node.Name)
+		if err := validateRelayNode(relay.Node); err != nil {
+			return err
 		}
 		if relay.Port < m.cfg.PortStart || relay.Port > m.cfg.PortEnd {
-			return fmt.Errorf("vless relay port %d is outside configured range", relay.Port)
+			return fmt.Errorf("%s relay port %d is outside configured range", relay.Node.Protocol, relay.Port)
 		}
-		inboundTag := fmt.Sprintf("task-%d-vless-in-%d", relay.TaskID, relay.Port)
-		outboundTag := fmt.Sprintf("task-%d-vless-out-%d", relay.TaskID, relay.Port)
+		inboundTag := fmt.Sprintf("task-%d-%s-in-%d", relay.TaskID, relay.Node.Protocol, relay.Port)
+		outboundTag := fmt.Sprintf("task-%d-%s-out-%d", relay.TaskID, relay.Node.Protocol, relay.Port)
 		cfg.Inbounds = append(cfg.Inbounds, m.socksInbound(inboundTag, relay.Port))
-		cfg.Outbounds = append(cfg.Outbounds, vlessOutbound(outboundTag, relay.Node))
+		outbound, err := relayOutbound(outboundTag, relay.Node)
+		if err != nil {
+			return err
+		}
+		cfg.Outbounds = append(cfg.Outbounds, outbound)
 		cfg.Route.Rules = append(cfg.Route.Rules, singBoxRouteRule{Inbound: []string{inboundTag}, Outbound: outboundTag})
 	}
 	if len(cfg.Inbounds) > 0 {
@@ -211,6 +215,39 @@ func countVLESS(nodes []convert.Node) int {
 		}
 	}
 	return count
+}
+
+func isRelayableProtocol(node convert.Node) bool {
+	return node.Protocol == "vless" || isTrojanWebSocket(node)
+}
+
+func isTrojanWebSocket(node convert.Node) bool {
+	return node.Protocol == "trojan" && node.Params["network"] == "ws"
+}
+
+func validateRelayNode(node convert.Node) error {
+	switch node.Protocol {
+	case "vless":
+		if node.Params["uuid"] == "" {
+			return fmt.Errorf("vless node %q uuid is required", node.Name)
+		}
+	case "trojan":
+		if node.Params["password"] == "" {
+			return fmt.Errorf("trojan node %q password is required", node.Name)
+		}
+	}
+	return nil
+}
+
+func relayOutbound(tag string, node convert.Node) (singBoxOutbound, error) {
+	switch node.Protocol {
+	case "vless":
+		return vlessOutbound(tag, node), nil
+	case "trojan":
+		return trojanOutbound(tag, node), nil
+	default:
+		return singBoxOutbound{}, fmt.Errorf("unsupported relay protocol %q", node.Protocol)
+	}
 }
 
 func (m *Manager) socksInbound(tag string, port int) singBoxInbound {
@@ -271,6 +308,7 @@ type singBoxOutbound struct {
 	Server         string            `json:"server,omitempty"`
 	ServerPort     int               `json:"server_port,omitempty"`
 	UUID           string            `json:"uuid,omitempty"`
+	Password       string            `json:"password,omitempty"`
 	Flow           string            `json:"flow,omitempty"`
 	TLS            *singBoxTLS       `json:"tls,omitempty"`
 	Transport      *singBoxTransport `json:"transport,omitempty"`
@@ -350,6 +388,36 @@ func vlessOutbound(tag string, node convert.Node) singBoxOutbound {
 		outbound.Transport = &singBoxTransport{Type: "grpc", ServiceName: node.Params["grpc_service_name"]}
 	}
 	return outbound
+}
+
+func trojanOutbound(tag string, node convert.Node) singBoxOutbound {
+	outbound := singBoxOutbound{
+		Type:       "trojan",
+		Tag:        tag,
+		Network:    trojanNetwork(node),
+		Server:     node.Server,
+		ServerPort: node.Port,
+		Password:   node.Params["password"],
+		TLS:        &singBoxTLS{Enabled: true, ServerName: node.Params["sni"], Insecure: node.Params["skip_cert_verify"] == "true"},
+	}
+	if node.Params["network"] == "ws" {
+		transport := &singBoxTransport{Type: "ws", Path: node.Params["ws_path"]}
+		if host := node.Params["ws_host"]; host != "" {
+			transport.Headers = map[string]string{"Host": host}
+		}
+		outbound.Transport = transport
+	}
+	return outbound
+}
+
+func trojanNetwork(node convert.Node) string {
+	if node.Params["network"] == "ws" {
+		return "tcp"
+	}
+	if node.Params["udp"] == "true" {
+		return "udp"
+	}
+	return "tcp"
 }
 
 func fallbackNetwork(network string) string {

@@ -288,6 +288,64 @@ func TestManagerConfiguresMultipleTaskRelaysWithoutPortReuse(t *testing.T) {
 	}
 }
 
+func TestManagerConfiguresTrojanWebSocketRelay(t *testing.T) {
+	manager := NewManager(config.VLESSRelayConfig{
+		Enabled:    true,
+		PublicHost: "proxy.example.com",
+		ListenHost: "0.0.0.0",
+		PortStart:  19000,
+		PortEnd:    19010,
+		Username:   "relay",
+		Password:   "secret",
+		ConfigPath: filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+
+	err := manager.ConfigureRelays([]Relay{{
+		TaskID:   1,
+		NodeName: "越南-CMI专线1",
+		Port:     19000,
+		Node: convert.Node{
+			Name:     "越南-CMI专线1",
+			Protocol: "trojan",
+			Server:   "resolution1.private.berry-is-sweet.com",
+			Port:     2053,
+			Params: map[string]string{
+				"password": "secret",
+				"sni":      "17800258482229.berrycdn-3.com",
+				"network":  "ws",
+				"ws_path":  "/videotahyjhghmuaawe",
+				"ws_host":  "j1.berrycdn-3.com",
+				"udp":      "true",
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("ConfigureRelays returned error: %v", err)
+	}
+	configBytes, err := os.ReadFile(manager.cfg.ConfigPath)
+	if err != nil {
+		t.Fatalf("read generated config: %v", err)
+	}
+	configText := string(configBytes)
+	for _, want := range []string{
+		`"tag": "task-1-trojan-in-19000"`,
+		`"type": "trojan"`,
+		`"server": "resolution1.private.berry-is-sweet.com"`,
+		`"server_port": 2053`,
+		`"password": "secret"`,
+		`"network": "tcp"`,
+		`"server_name": "17800258482229.berrycdn-3.com"`,
+		`"type": "ws"`,
+		`"path": "/videotahyjhghmuaawe"`,
+		`"Host": "j1.berrycdn-3.com"`,
+		`"outbound": "task-1-trojan-out-19000"`,
+	} {
+		if !strings.Contains(configText, want) {
+			t.Fatalf("generated config missing %q:\n%s", want, configText)
+		}
+	}
+}
+
 func TestManagerRejectsTooManyVLESSNodes(t *testing.T) {
 	manager := NewManager(config.VLESSRelayConfig{
 		Enabled:    true,

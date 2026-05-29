@@ -32,6 +32,7 @@ type ConversionTask struct {
 	FinalRulePolicy              string
 	CustomGroupsText             string
 	VLESSRelayMode               string
+	TrojanWSRelayMode            string
 	ManagedConfigMode            string
 	ManagedConfigURLMode         string
 	ManagedConfigCustomURL       string
@@ -45,6 +46,7 @@ type ConversionTask struct {
 type GlobalRuleConfig struct {
 	CustomRulesText              string
 	VLESSRelayEnabled            bool
+	TrojanWSRelayEnabled         bool
 	SubscriptionInfoKeywordsText string
 }
 

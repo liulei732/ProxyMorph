@@ -14,10 +14,12 @@ describe("task editor live summary binding", () => {
     assert.match(source, /draft\.rule_merge_mode/);
     assert.match(source, /draft\.final_rule_policy/);
     assert.match(source, /draft\.vless_relay_mode/);
+    assert.match(source, /draft\.trojan_ws_relay_mode/);
     assert.doesNotMatch(source, /\[t\.forms\.mergeDefaults,\s*task\.MergeDefaultPinnedNodes/);
     assert.doesNotMatch(source, /\[t\.forms\.includeGlobalRules,\s*task\.IncludeGlobalRules/);
     assert.doesNotMatch(source, /\[t\.forms\.ruleMergeMode,\s*t\.ruleMergeModes\[task\.RuleMergeMode\]/);
-    assert.doesNotMatch(source, /\[t\.forms\.vlessRelayMode,\s*t\.vlessRelayModes\[task\.VLESSRelayMode/);
+    assert.doesNotMatch(source, /\[t\.forms\.vlessRelayMode,\s*t\.relayModes\[task\.VLESSRelayMode/);
+    assert.doesNotMatch(source, /\[t\.forms\.trojanWSRelayMode,\s*t\.relayModes\[task\.TrojanWSRelayMode/);
   });
 
   it("routes conversion field edits through draft preview updates", () => {
@@ -26,6 +28,7 @@ describe("task editor live summary binding", () => {
     assert.match(source, /name="rule_merge_mode"[\s\S]*updateDraft\("rule_merge_mode"/);
     assert.match(source, /name="final_rule_policy"[\s\S]*updateDraft\("final_rule_policy"/);
     assert.match(source, /name="vless_relay_mode"[\s\S]*updateDraft\("vless_relay_mode"/);
+    assert.match(source, /name="trojan_ws_relay_mode"[\s\S]*updateDraft\("trojan_ws_relay_mode"/);
     assert.match(source, /void onPreviewDraft\(task\.ID, next\)/);
   });
 

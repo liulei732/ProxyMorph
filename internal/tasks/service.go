@@ -26,6 +26,7 @@ type CreateInput struct {
 	SourceURL              string `json:"source_url"`
 	RefreshIntervalSeconds int    `json:"refresh_interval_seconds"`
 	VLESSRelayMode         string `json:"vless_relay_mode"`
+	TrojanWSRelayMode      string `json:"trojan_ws_relay_mode"`
 }
 
 type UpdateInput struct {
@@ -40,6 +41,7 @@ type UpdateInput struct {
 	FinalRulePolicy              *string `json:"final_rule_policy"`
 	CustomGroupsText             *string `json:"custom_groups_text"`
 	VLESSRelayMode               *string `json:"vless_relay_mode"`
+	TrojanWSRelayMode            *string `json:"trojan_ws_relay_mode"`
 	ManagedConfigMode            *string `json:"managed_config_mode"`
 	ManagedConfigURLMode         *string `json:"managed_config_url_mode"`
 	ManagedConfigCustomURL       *string `json:"managed_config_custom_url"`
@@ -51,6 +53,7 @@ type UpdateInput struct {
 type GlobalRuleConfigInput struct {
 	CustomRulesText              string `json:"custom_rules_text"`
 	VLESSRelayEnabled            bool   `json:"vless_relay_enabled"`
+	TrojanWSRelayEnabled         bool   `json:"trojan_ws_relay_enabled"`
 	SubscriptionInfoKeywordsText string `json:"subscription_info_keywords_text"`
 }
 
@@ -72,12 +75,13 @@ func (s *Service) Create(userID int64, input CreateInput) (storage.ConversionTas
 	}
 	input.Name = defaultTaskName(input.Name, input.SourceURL)
 	vlessRelayMode := normalizeVLESSRelayMode(input.VLESSRelayMode)
+	trojanWSRelayMode := normalizeTrojanWSRelayMode(input.TrojanWSRelayMode)
 	res, err := s.db.SQL().Exec(`
 		INSERT INTO conversion_tasks (
 			user_id, name, input_type, output_type, source_url, enabled,
-			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode, vless_relay_mode
-		) VALUES (?, ?, 'clash', 'surge6', ?, 1, ?, 1, 'after_remote', ?)`,
-		userID, input.Name, input.SourceURL, input.RefreshIntervalSeconds, vlessRelayMode,
+			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode, vless_relay_mode, trojan_ws_relay_mode
+		) VALUES (?, ?, 'clash', 'surge6', ?, 1, ?, 1, 'after_remote', ?, ?)`,
+		userID, input.Name, input.SourceURL, input.RefreshIntervalSeconds, vlessRelayMode, trojanWSRelayMode,
 	)
 	if err != nil {
 		return storage.ConversionTask{}, err
@@ -147,6 +151,9 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 	if input.VLESSRelayMode != nil {
 		task.VLESSRelayMode = normalizeVLESSRelayMode(*input.VLESSRelayMode)
 	}
+	if input.TrojanWSRelayMode != nil {
+		task.TrojanWSRelayMode = normalizeTrojanWSRelayMode(*input.TrojanWSRelayMode)
+	}
 	if input.ManagedConfigMode != nil {
 		task.ManagedConfigMode = normalizeTriStateMode(*input.ManagedConfigMode)
 	}
@@ -178,14 +185,14 @@ func (s *Service) Update(userID, id int64, input UpdateInput) (storage.Conversio
 		UPDATE conversion_tasks
 		SET name = ?, source_url = ?, refresh_interval_seconds = ?, enabled = ?,
 			merge_default_pinned_nodes = ?, include_global_rules = ?, custom_rules_text = ?,
-			rule_merge_mode = ?, final_rule_policy = ?, custom_groups_text = ?, vless_relay_mode = ?,
+			rule_merge_mode = ?, final_rule_policy = ?, custom_groups_text = ?, vless_relay_mode = ?, trojan_ws_relay_mode = ?,
 			managed_config_mode = ?, managed_config_url_mode = ?, managed_config_custom_url = ?,
 			managed_config_interval_mode = ?, managed_config_interval_seconds = ?, managed_config_strict_mode = ?,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = ? AND id = ?`,
 		task.Name, task.SourceURL, task.RefreshIntervalSeconds, enabled, mergeDefaults,
 		includeGlobalRules, task.CustomRulesText, task.RuleMergeMode, task.FinalRulePolicy, task.CustomGroupsText,
-		task.VLESSRelayMode, task.ManagedConfigMode, task.ManagedConfigURLMode, task.ManagedConfigCustomURL,
+		task.VLESSRelayMode, task.TrojanWSRelayMode, task.ManagedConfigMode, task.ManagedConfigURLMode, task.ManagedConfigCustomURL,
 		task.ManagedConfigIntervalMode, task.ManagedConfigIntervalSeconds, task.ManagedConfigStrictMode,
 		userID, id,
 	)
@@ -230,7 +237,7 @@ func (s *Service) List(userID int64) ([]storage.ConversionTask, error) {
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, final_rule_policy, custom_groups_text,
-			vless_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
+			vless_relay_mode, trojan_ws_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
 			managed_config_interval_mode, managed_config_interval_seconds, managed_config_strict_mode,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
@@ -273,7 +280,7 @@ func (s *Service) get(userID, id int64) (storage.ConversionTask, error) {
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_success_at, last_error_at, last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, final_rule_policy, custom_groups_text,
-			vless_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
+			vless_relay_mode, trojan_ws_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
 			managed_config_interval_mode, managed_config_interval_seconds, managed_config_strict_mode,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
@@ -307,7 +314,7 @@ func randomToken() (string, error) {
 }
 
 func (s *Service) GlobalRuleConfig() (storage.GlobalRuleConfig, error) {
-	values, err := s.settings("global_custom_rules_text", "vless_relay_enabled", "subscription_info_keywords_text")
+	values, err := s.settings("global_custom_rules_text", "vless_relay_enabled", "trojan_ws_relay_enabled", "subscription_info_keywords_text")
 	if err != nil {
 		return storage.GlobalRuleConfig{}, err
 	}
@@ -318,6 +325,7 @@ func (s *Service) GlobalRuleConfig() (storage.GlobalRuleConfig, error) {
 	return storage.GlobalRuleConfig{
 		CustomRulesText:              values["global_custom_rules_text"],
 		VLESSRelayEnabled:            settingBool(values["vless_relay_enabled"]),
+		TrojanWSRelayEnabled:         settingBool(values["trojan_ws_relay_enabled"]),
 		SubscriptionInfoKeywordsText: keywords,
 	}, nil
 }
@@ -330,6 +338,9 @@ func (s *Service) UpdateGlobalRuleConfig(input GlobalRuleConfigInput) (storage.G
 		return storage.GlobalRuleConfig{}, err
 	}
 	if err := s.setSetting("vless_relay_enabled", boolSetting(input.VLESSRelayEnabled)); err != nil {
+		return storage.GlobalRuleConfig{}, err
+	}
+	if err := s.setSetting("trojan_ws_relay_enabled", boolSetting(input.TrojanWSRelayEnabled)); err != nil {
 		return storage.GlobalRuleConfig{}, err
 	}
 	if err := s.setSetting("subscription_info_keywords_text", strings.TrimSpace(input.SubscriptionInfoKeywordsText)); err != nil {
@@ -356,6 +367,14 @@ func (s *Service) VLESSRelayEnabled() (bool, error) {
 		return false, err
 	}
 	return settingBool(values["vless_relay_enabled"]), nil
+}
+
+func (s *Service) TrojanWSRelayEnabled() (bool, error) {
+	values, err := s.settings("trojan_ws_relay_enabled")
+	if err != nil {
+		return false, err
+	}
+	return settingBool(values["trojan_ws_relay_enabled"]), nil
 }
 
 func (s *Service) ManagedConfigDefaults() (storage.ManagedConfigDefaults, error) {
@@ -537,6 +556,10 @@ func normalizeVLESSRelayMode(mode string) string {
 	return normalizeTriStateMode(mode)
 }
 
+func normalizeTrojanWSRelayMode(mode string) string {
+	return normalizeTriStateMode(mode)
+}
+
 func normalizeTriStateMode(mode string) string {
 	switch mode {
 	case "enabled", "disabled":
@@ -608,7 +631,7 @@ func scanTask(row taskScanner) (storage.ConversionTask, error) {
 		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&lastSuccessAt, &lastErrorAt, &task.LastErrorMessage,
 		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.FinalRulePolicy, &task.CustomGroupsText,
-		&task.VLESSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,
+		&task.VLESSRelayMode, &task.TrojanWSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,
 		&task.ManagedConfigIntervalMode, &task.ManagedConfigIntervalSeconds, &task.ManagedConfigStrictMode,
 		&task.SubscriptionToken,
 	)
@@ -621,6 +644,7 @@ func scanTask(row taskScanner) (storage.ConversionTask, error) {
 	task.RuleMergeMode = normalizeRuleMergeMode(task.RuleMergeMode)
 	task.FinalRulePolicy = normalizeFinalRulePolicy(task.FinalRulePolicy)
 	task.VLESSRelayMode = normalizeVLESSRelayMode(task.VLESSRelayMode)
+	task.TrojanWSRelayMode = normalizeTrojanWSRelayMode(task.TrojanWSRelayMode)
 	task.ManagedConfigMode = normalizeTriStateMode(task.ManagedConfigMode)
 	task.ManagedConfigURLMode = normalizeTaskManagedURLMode(task.ManagedConfigURLMode)
 	task.ManagedConfigCustomURL = strings.TrimSpace(task.ManagedConfigCustomURL)

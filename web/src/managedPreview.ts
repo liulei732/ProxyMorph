@@ -1,5 +1,5 @@
 export type RuleMergeMode = "custom_first" | "upstream_first" | "custom_first_dedupe" | "upstream_first_dedupe";
-export type VLESSRelayMode = "global" | "enabled" | "disabled";
+export type RelayMode = "global" | "enabled" | "disabled";
 export type TriStateMode = "global" | "enabled" | "disabled";
 export type ManagedURLMode = "global" | "task_subscription" | "custom";
 export type GlobalManagedURLMode = "task_subscription" | "custom";

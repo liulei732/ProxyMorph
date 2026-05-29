@@ -27,6 +27,9 @@ func TestCreateAndListTasks(t *testing.T) {
 	if task.VLESSRelayMode != "global" {
 		t.Fatalf("VLESSRelayMode = %q, want global", task.VLESSRelayMode)
 	}
+	if task.TrojanWSRelayMode != "global" {
+		t.Fatalf("TrojanWSRelayMode = %q, want global", task.TrojanWSRelayMode)
+	}
 	tasks, err := service.List(userID)
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
@@ -69,6 +72,29 @@ func TestCreateTaskAcceptsVLESSRelayMode(t *testing.T) {
 	}
 	if task.VLESSRelayMode != "disabled" {
 		t.Fatalf("VLESSRelayMode = %q, want disabled", task.VLESSRelayMode)
+	}
+}
+
+func TestCreateTaskAcceptsTrojanWSRelayMode(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	userID := seedUser(t, db)
+	service := NewService(db)
+
+	task, err := service.Create(userID, CreateInput{
+		Name:                   "Main",
+		SourceURL:              "https://example.com/clash.yaml",
+		RefreshIntervalSeconds: 3600,
+		TrojanWSRelayMode:      "enabled",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if task.TrojanWSRelayMode != "enabled" {
+		t.Fatalf("TrojanWSRelayMode = %q, want enabled", task.TrojanWSRelayMode)
 	}
 }
 
@@ -170,6 +196,7 @@ func TestUpdateTaskChangesSurgeConfigFields(t *testing.T) {
 		RuleMergeMode:                stringPtr("upstream_first_dedupe"),
 		CustomGroupsText:             stringPtr("Manual = select, Proxy, DIRECT"),
 		VLESSRelayMode:               stringPtr("enabled"),
+		TrojanWSRelayMode:            stringPtr("disabled"),
 		ManagedConfigMode:            stringPtr("enabled"),
 		ManagedConfigURLMode:         stringPtr("task_subscription"),
 		ManagedConfigIntervalMode:    stringPtr("custom"),
@@ -190,6 +217,9 @@ func TestUpdateTaskChangesSurgeConfigFields(t *testing.T) {
 	}
 	if next.VLESSRelayMode != "enabled" {
 		t.Fatalf("VLESSRelayMode = %q, want enabled", next.VLESSRelayMode)
+	}
+	if next.TrojanWSRelayMode != "disabled" {
+		t.Fatalf("TrojanWSRelayMode = %q, want disabled", next.TrojanWSRelayMode)
 	}
 }
 
@@ -241,7 +271,7 @@ func TestGlobalRuleConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GlobalRuleConfig returned error: %v", err)
 	}
-	if initial.CustomRulesText != "" || initial.VLESSRelayEnabled {
+	if initial.CustomRulesText != "" || initial.VLESSRelayEnabled || initial.TrojanWSRelayEnabled {
 		t.Fatalf("unexpected initial config: %#v", initial)
 	}
 	if initial.SubscriptionInfoKeywordsText == "" {
@@ -250,12 +280,13 @@ func TestGlobalRuleConfigRoundTrip(t *testing.T) {
 	updated, err := service.UpdateGlobalRuleConfig(GlobalRuleConfigInput{
 		CustomRulesText:              "DOMAIN,global.example,DIRECT",
 		VLESSRelayEnabled:            true,
+		TrojanWSRelayEnabled:         true,
 		SubscriptionInfoKeywordsText: "余额\n重置时间",
 	})
 	if err != nil {
 		t.Fatalf("UpdateGlobalRuleConfig returned error: %v", err)
 	}
-	if updated.CustomRulesText != "DOMAIN,global.example,DIRECT" || !updated.VLESSRelayEnabled || updated.SubscriptionInfoKeywordsText != "余额\n重置时间" {
+	if updated.CustomRulesText != "DOMAIN,global.example,DIRECT" || !updated.VLESSRelayEnabled || !updated.TrojanWSRelayEnabled || updated.SubscriptionInfoKeywordsText != "余额\n重置时间" {
 		t.Fatalf("unexpected updated config: %#v", updated)
 	}
 	enabled, err := service.VLESSRelayEnabled()
@@ -264,6 +295,13 @@ func TestGlobalRuleConfigRoundTrip(t *testing.T) {
 	}
 	if !enabled {
 		t.Fatal("VLESSRelayEnabled = false, want true")
+	}
+	trojanWSEnabled, err := service.TrojanWSRelayEnabled()
+	if err != nil {
+		t.Fatalf("TrojanWSRelayEnabled returned error: %v", err)
+	}
+	if !trojanWSEnabled {
+		t.Fatal("TrojanWSRelayEnabled = false, want true")
 	}
 }
 

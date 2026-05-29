@@ -288,6 +288,78 @@ func TestGenerateRelaysVLESSWhenRelaySettingEnabled(t *testing.T) {
 	}
 }
 
+func TestGenerateRelaysTrojanWSWhenRelaySettingEnabled(t *testing.T) {
+	uriList := "trojan://secret@trojan.example:2053?allowInsecure=0&sni=sni.example.com&type=ws&path=%2Fvideo&host=host.example.com#TrojanWS"
+	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/sub")
+	seedTrojanWSRelaySetting(t, db, true)
+
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+	defer service.Close()
+
+	output, err := service.GenerateByTaskID(1)
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	for _, want := range []string{
+		"TrojanWS = socks5, proxy.example.test, 19000",
+		"username=relay",
+		"password=secret",
+		"Proxy = select, TrojanWS",
+		"FINAL,Proxy",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "= trojan") {
+		t.Fatalf("output should not contain static Trojan proxy when Trojan WS relay is enabled:\n%s", output)
+	}
+}
+
+func TestGenerateRelaysTrojanWSWhenTaskEnablesRelayAndGlobalDisabled(t *testing.T) {
+	output, err := generateTrojanWSWithRelaySettings(t, false, "enabled")
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if !strings.Contains(output, "TrojanWS = socks5, proxy.example.test, 19000") {
+		t.Fatalf("output should relay Trojan WS when task enables it:\n%s", output)
+	}
+}
+
+func TestGenerateDoesNotRelayTrojanWSWhenTaskDisablesRelayAndGlobalEnabled(t *testing.T) {
+	output, err := generateTrojanWSWithRelaySettings(t, true, "disabled")
+	if err != nil {
+		t.Fatalf("GenerateByTaskID returned error: %v", err)
+	}
+	if !strings.Contains(output, "TrojanWS = trojan, trojan.example, 2053") || strings.Contains(output, "TrojanWS = socks5") {
+		t.Fatalf("output should keep static Trojan WS when task disables relay:\n%s", output)
+	}
+}
+
 func TestGenerateRelaysVLESSWhenTaskEnablesRelayAndGlobalDisabled(t *testing.T) {
 	output, err := generateVLESSWithRelaySettings(t, false, "enabled")
 	if err != nil {
@@ -785,6 +857,43 @@ func generateVLESSWithRelaySettings(t *testing.T, globalEnabled bool, taskMode s
 	return service.GenerateByTaskID(1)
 }
 
+func generateTrojanWSWithRelaySettings(t *testing.T, globalEnabled bool, taskMode string) (string, error) {
+	t.Helper()
+	uriList := "trojan://secret@trojan.example:2053?allowInsecure=0&sni=sni.example.com&type=ws&path=%2Fvideo&host=host.example.com#TrojanWS"
+	upstreamContent := base64.StdEncoding.EncodeToString([]byte(uriList))
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	seedTaskWithoutPinnedNodes(t, db, "https://upstream.example.test/sub")
+	seedTrojanWSRelaySetting(t, db, globalEnabled)
+	if _, err := db.SQL().Exec(`UPDATE conversion_tasks SET trojan_ws_relay_mode = ? WHERE id = 1`, taskMode); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(upstreamContent)),
+			Header:     make(http.Header),
+		}, nil
+	})})
+	service.SetVLESSRelay(config.VLESSRelayConfig{
+		Enabled:     true,
+		PublicHost:  "proxy.example.test",
+		ListenHost:  "0.0.0.0",
+		PortStart:   19000,
+		PortEnd:     19010,
+		Username:    "relay",
+		Password:    "secret",
+		SingBoxPath: fakeSingBox(t),
+		ConfigPath:  filepath.Join(t.TempDir(), "sing-box.json"),
+	})
+	t.Cleanup(func() { _ = service.Close() })
+
+	return service.GenerateByTaskID(1)
+}
+
 func fakeSingBox(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sing-box")
@@ -864,6 +973,18 @@ func seedVLESSRelaySetting(t *testing.T, db *storage.DB, enabled bool) {
 		value = "true"
 	}
 	_, err := db.SQL().Exec(`INSERT INTO app_settings (key, value) VALUES ('vless_relay_enabled', ?)`, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedTrojanWSRelaySetting(t *testing.T, db *storage.DB, enabled bool) {
+	t.Helper()
+	value := "false"
+	if enabled {
+		value = "true"
+	}
+	_, err := db.SQL().Exec(`INSERT INTO app_settings (key, value) VALUES ('trojan_ws_relay_enabled', ?)`, value)
 	if err != nil {
 		t.Fatal(err)
 	}

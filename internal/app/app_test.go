@@ -131,7 +131,7 @@ func TestRuleConfigEndpointRoundTrip(t *testing.T) {
 	}
 	cookie := loginRes.Result().Cookies()[0]
 
-	putReq := httptest.NewRequest(http.MethodPut, "/api/rule-config", bytes.NewBufferString(`{"custom_rules_text":"DOMAIN,global.example,DIRECT","vless_relay_enabled":true,"subscription_info_keywords_text":"余额\n重置时间"}`))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/rule-config", bytes.NewBufferString(`{"custom_rules_text":"DOMAIN,global.example,DIRECT","vless_relay_enabled":true,"trojan_ws_relay_enabled":true,"subscription_info_keywords_text":"余额\n重置时间"}`))
 	putReq.AddCookie(cookie)
 	putRes := httptest.NewRecorder()
 	app.Handler().ServeHTTP(putRes, putReq)
@@ -149,12 +149,13 @@ func TestRuleConfigEndpointRoundTrip(t *testing.T) {
 	var payload struct {
 		CustomRulesText              string
 		VLESSRelayEnabled            bool
+		TrojanWSRelayEnabled         bool
 		SubscriptionInfoKeywordsText string
 	}
 	if err := json.NewDecoder(getRes.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.CustomRulesText != "DOMAIN,global.example,DIRECT" || !payload.VLESSRelayEnabled || payload.SubscriptionInfoKeywordsText != "余额\n重置时间" {
+	if payload.CustomRulesText != "DOMAIN,global.example,DIRECT" || !payload.VLESSRelayEnabled || !payload.TrojanWSRelayEnabled || payload.SubscriptionInfoKeywordsText != "余额\n重置时间" {
 		t.Fatalf("unexpected config: %#v", payload)
 	}
 }

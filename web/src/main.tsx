@@ -4,7 +4,7 @@ import { AlertCircle, Copy, Eye, KeyRound, Layers, LogOut, Pencil, Play, Plus, R
 import { api } from "./api";
 import { copyTextToClipboard } from "./clipboard";
 import { getInitialLanguage, languageStorageKey, languages, translations, type Language } from "./i18n";
-import { absoluteSubscriptionURL as buildAbsoluteSubscriptionURL, enabledManagedHeaderPreviewFromValues, managedHeaderPreviewFromValues, type GlobalManagedURLMode, type ManagedConfigDefaults, type ManagedIntervalMode, type ManagedPreviewValues, type ManagedURLMode, type RuleMergeMode, type TriStateMode, type VLESSRelayMode } from "./managedPreview";
+import { absoluteSubscriptionURL as buildAbsoluteSubscriptionURL, enabledManagedHeaderPreviewFromValues, managedHeaderPreviewFromValues, type GlobalManagedURLMode, type ManagedConfigDefaults, type ManagedIntervalMode, type ManagedPreviewValues, type ManagedURLMode, type RelayMode, type RuleMergeMode, type TriStateMode } from "./managedPreview";
 import { createPolicyGroup, membersFromText, parsePolicyGroupsText, policyGroupLine, policyGroupsText, type PolicyGroup, type PolicyGroupType } from "./policyGroups";
 import { previewRefreshTaskID, type PreviewChangeScope, type PreviewState } from "./previewState";
 import { defaultSubscriptionInfoKeywordsText, parseProxyGroupCandidates, parseProxyNodeCandidates, type ProxyNodeCandidate, type ProxyNodeCategory } from "./surgePreviewNodes";
@@ -29,7 +29,8 @@ type Task = {
   RuleMergeMode: RuleMergeMode;
   FinalRulePolicy: string;
   CustomGroupsText: string;
-  VLESSRelayMode: VLESSRelayMode;
+  VLESSRelayMode: RelayMode;
+  TrojanWSRelayMode: RelayMode;
   ManagedConfigMode: TriStateMode;
   ManagedConfigURLMode: ManagedURLMode;
   ManagedConfigCustomURL: string;
@@ -41,6 +42,7 @@ type Task = {
 type RuleConfig = {
   CustomRulesText: string;
   VLESSRelayEnabled: boolean;
+  TrojanWSRelayEnabled: boolean;
   SubscriptionInfoKeywordsText: string;
 };
 
@@ -75,7 +77,7 @@ function App() {
   const [language, setLanguage] = React.useState<Language>(() => getInitialLanguage(localStorage.getItem(languageStorageKey)));
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [nodes, setNodes] = React.useState<PinnedNode[]>([]);
-  const [ruleConfig, setRuleConfig] = React.useState<RuleConfig>({ CustomRulesText: "", VLESSRelayEnabled: false, SubscriptionInfoKeywordsText: defaultSubscriptionInfoKeywordsText });
+  const [ruleConfig, setRuleConfig] = React.useState<RuleConfig>({ CustomRulesText: "", VLESSRelayEnabled: false, TrojanWSRelayEnabled: false, SubscriptionInfoKeywordsText: defaultSubscriptionInfoKeywordsText });
   const [managedConfigDefaults, setManagedConfigDefaults] = React.useState<ManagedConfigDefaults>(defaultManagedConfigDefaults);
   const [error, setError] = React.useState("");
   const [toast, setToast] = React.useState("");
@@ -126,7 +128,7 @@ function App() {
     const [nextTasks, nextNodes, nextRuleConfig, nextManagedConfigDefaults] = await Promise.all([
       api<Task[]>("/api/tasks").catch(() => []),
       api<PinnedNode[]>("/api/nodes").catch(() => []),
-      api<RuleConfig>("/api/rule-config").catch(() => ({ CustomRulesText: "", VLESSRelayEnabled: false, SubscriptionInfoKeywordsText: defaultSubscriptionInfoKeywordsText })),
+      api<RuleConfig>("/api/rule-config").catch(() => ({ CustomRulesText: "", VLESSRelayEnabled: false, TrojanWSRelayEnabled: false, SubscriptionInfoKeywordsText: defaultSubscriptionInfoKeywordsText })),
       api<ManagedConfigDefaults>("/api/managed-config-defaults").catch(() => defaultManagedConfigDefaults),
     ]);
     setTasks(nextTasks);
@@ -323,6 +325,7 @@ function App() {
         body: JSON.stringify({
           custom_rules_text: String(form.get("custom_rules_text") || ""),
           vless_relay_enabled: form.get("vless_relay_enabled") === "on",
+          trojan_ws_relay_enabled: form.get("trojan_ws_relay_enabled") === "on",
           subscription_info_keywords_text: String(form.get("subscription_info_keywords_text") || ""),
         }),
       });
@@ -525,6 +528,7 @@ function App() {
             <form className="panel settings-form" onSubmit={updateRuleConfig}>
               <h3>{t.settings.globalRuleTitle}</h3>
               <label className="check-label"><input name="vless_relay_enabled" type="checkbox" defaultChecked={ruleConfig.VLESSRelayEnabled} /> {t.settings.vlessRelayToggle}</label>
+              <label className="check-label"><input name="trojan_ws_relay_enabled" type="checkbox" defaultChecked={ruleConfig.TrojanWSRelayEnabled} /> {t.settings.trojanWSRelayToggle}</label>
               <label className="wide-field">{t.forms.customRules}<textarea name="custom_rules_text" rows={8} defaultValue={ruleConfig.CustomRulesText} placeholder={t.placeholders.customRules} /></label>
               <label className="wide-field">{t.forms.subscriptionInfoKeywords}<textarea name="subscription_info_keywords_text" rows={5} defaultValue={ruleConfig.SubscriptionInfoKeywordsText} placeholder={defaultSubscriptionInfoKeywordsText} /></label>
               <button><Save size={15} /> {t.forms.save}</button>
@@ -564,7 +568,8 @@ type TaskUpdateInput = {
   rule_merge_mode?: RuleMergeMode;
   final_rule_policy?: string;
   custom_groups_text?: string;
-  vless_relay_mode?: VLESSRelayMode;
+  vless_relay_mode?: RelayMode;
+  trojan_ws_relay_mode?: RelayMode;
   managed_config_mode?: TriStateMode;
   managed_config_url_mode?: ManagedURLMode;
   managed_config_custom_url?: string;
@@ -733,6 +738,7 @@ function TaskRow({
   const draftRuleMergeMode = draft.rule_merge_mode || "custom_first";
   const draftFinalRulePolicy = draft.final_rule_policy || "";
   const draftVLESSRelayMode = draft.vless_relay_mode || "global";
+  const draftTrojanWSRelayMode = draft.trojan_ws_relay_mode || "global";
 
   React.useEffect(() => {
     if (!editing) {
@@ -856,10 +862,14 @@ function TaskRow({
                     <p className="field-note">{t.taskEditor.descriptions.finalRulePolicy}</p>
                   </div>
                 </EditorSubsection>
-                <EditorSubsection title={t.taskEditor.subsections.vless} description={t.taskEditor.descriptions.vless}>
+                <EditorSubsection title={t.taskEditor.subsections.relay} description={t.taskEditor.descriptions.relay}>
                   <div className="setting-row">
-                    <label>{t.forms.vlessRelayMode}<select name="vless_relay_mode" value={draft.vless_relay_mode || "global"} onChange={(event) => updateDraft("vless_relay_mode", event.currentTarget.value as VLESSRelayMode)}>{vlessRelayModeOptions(t)}</select></label>
+                    <label>{t.forms.vlessRelayMode}<select name="vless_relay_mode" value={draft.vless_relay_mode || "global"} onChange={(event) => updateDraft("vless_relay_mode", event.currentTarget.value as RelayMode)}>{relayModeOptions(t)}</select></label>
                     <p className="field-note">{t.taskEditor.descriptions.vless}</p>
+                  </div>
+                  <div className="setting-row">
+                    <label>{t.forms.trojanWSRelayMode}<select name="trojan_ws_relay_mode" value={draft.trojan_ws_relay_mode || "global"} onChange={(event) => updateDraft("trojan_ws_relay_mode", event.currentTarget.value as RelayMode)}>{relayModeOptions(t)}</select></label>
+                    <p className="field-note">{t.taskEditor.descriptions.trojanWS}</p>
                   </div>
                 </EditorSubsection>
               </div>
@@ -913,7 +923,8 @@ function TaskRow({
                     [t.forms.includeGlobalRules, draftIncludeGlobalRules ? t.taskList.enabled : t.taskList.disabled],
                     [t.forms.ruleMergeMode, t.ruleMergeModes[draftRuleMergeMode]],
                     [t.forms.finalRulePolicy, draftFinalRulePolicy || t.taskEditor.autoFinalPolicy],
-                    [t.forms.vlessRelayMode, t.vlessRelayModes[draftVLESSRelayMode]],
+                    [t.forms.vlessRelayMode, t.relayModes[draftVLESSRelayMode]],
+                    [t.forms.trojanWSRelayMode, t.relayModes[draftTrojanWSRelayMode]],
                   ]} />
                 </EditorSummaryCard>
               )}
@@ -1355,6 +1366,7 @@ function taskDraftInput(task: Task): TaskUpdateInput {
     final_rule_policy: task.FinalRulePolicy || "",
     custom_groups_text: task.CustomGroupsText || "",
     vless_relay_mode: task.VLESSRelayMode || "global",
+    trojan_ws_relay_mode: task.TrojanWSRelayMode || "global",
     managed_config_mode: task.ManagedConfigMode || "global",
     managed_config_url_mode: task.ManagedConfigURLMode === "custom" ? "custom" : "task_subscription",
     managed_config_custom_url: task.ManagedConfigCustomURL || "",
@@ -1376,9 +1388,9 @@ function triStateOptions(labels: Record<TriStateMode, string>) {
   ));
 }
 
-function vlessRelayModeOptions(t: typeof translations[Language]) {
-  return (["global", "enabled", "disabled"] as VLESSRelayMode[]).map((mode) => (
-    <option key={mode} value={mode}>{t.vlessRelayModes[mode]}</option>
+function relayModeOptions(t: typeof translations[Language]) {
+  return (["global", "enabled", "disabled"] as RelayMode[]).map((mode) => (
+    <option key={mode} value={mode}>{t.relayModes[mode]}</option>
   ));
 }
 

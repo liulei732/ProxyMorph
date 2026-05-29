@@ -137,9 +137,11 @@ func (s *Service) generateTask(task storage.ConversionTask, relayHost string, pe
 	}
 	log.Printf("subscription task=%d stage=pinned status=ok nodes=%d merge_default=%t", task.ID, len(pinned), task.MergeDefaultPinnedNodes)
 	doc.Nodes = convert.MergeNodes(doc.Nodes, pinned, convert.MergeOptions{Mode: task.PinnedNodeOrderMode})
-	if s.vlessRelayEnabled(task) {
+	vlessRelayEnabled := s.vlessRelayEnabled(task)
+	trojanWSRelayEnabled := s.trojanWSRelayEnabled(task)
+	if vlessRelayEnabled || trojanWSRelayEnabled {
 		relayStartedAt := time.Now()
-		doc.Nodes, err = s.configureTaskVLESSRelays(task.ID, doc.Nodes, relayHost)
+		doc.Nodes, err = s.configureTaskProtocolRelays(task.ID, doc.Nodes, relayHost, vlessRelayEnabled, trojanWSRelayEnabled)
 		if err != nil {
 			log.Printf("subscription task=%d stage=vless_relay status=error duration_ms=%d error=%q", task.ID, time.Since(relayStartedAt).Milliseconds(), err)
 			s.recordRun(task.ID, "error", err.Error())
@@ -254,6 +256,9 @@ func applyDraft(task storage.ConversionTask, input tasks.UpdateInput) storage.Co
 	if input.VLESSRelayMode != nil {
 		task.VLESSRelayMode = *input.VLESSRelayMode
 	}
+	if input.TrojanWSRelayMode != nil {
+		task.TrojanWSRelayMode = *input.TrojanWSRelayMode
+	}
 	if input.ManagedConfigMode != nil {
 		task.ManagedConfigMode = *input.ManagedConfigMode
 	}
@@ -293,6 +298,24 @@ func (s *Service) vlessRelayEnabled(task storage.ConversionTask) bool {
 	return enabled
 }
 
+func (s *Service) trojanWSRelayEnabled(task storage.ConversionTask) bool {
+	if s.vlessRelay == nil {
+		return false
+	}
+	switch normalizeTrojanWSRelayMode(task.TrojanWSRelayMode) {
+	case "enabled":
+		return true
+	case "disabled":
+		return false
+	}
+	enabled, err := s.tasks.TrojanWSRelayEnabled()
+	if err != nil {
+		log.Printf("subscription stage=trojan_ws_relay_setting status=error error=%q", err)
+		return false
+	}
+	return enabled
+}
+
 func (s *Service) configureRelayHostLocked(requestHost string) error {
 	host := relayPublicHost(s.relayConfig.PublicHost, requestHost)
 	if host == s.relayConfig.PublicHost {
@@ -309,6 +332,10 @@ func (s *Service) configureRelayHostLocked(requestHost string) error {
 }
 
 func (s *Service) configureTaskVLESSRelays(taskID int64, nodes []convert.Node, relayHost string) ([]convert.Node, error) {
+	return s.configureTaskProtocolRelays(taskID, nodes, relayHost, true, false)
+}
+
+func (s *Service) configureTaskProtocolRelays(taskID int64, nodes []convert.Node, relayHost string, includeVLESS bool, includeTrojanWS bool) ([]convert.Node, error) {
 	if s.vlessRelay == nil {
 		return nodes, nil
 	}
@@ -317,25 +344,25 @@ func (s *Service) configureTaskVLESSRelays(taskID int64, nodes []convert.Node, r
 	if err := s.configureRelayHostLocked(relayHost); err != nil {
 		return nil, err
 	}
-	vlessNodes := make([]convert.Node, 0)
+	relayNodes := make([]convert.Node, 0)
 	for _, node := range nodes {
-		if node.Protocol == "vless" {
-			vlessNodes = append(vlessNodes, node)
+		if relayNodeEnabled(node, includeVLESS, includeTrojanWS) {
+			relayNodes = append(relayNodes, node)
 		}
 	}
-	ports, err := s.upsertTaskRelayEntries(taskID, vlessNodes)
+	ports, err := s.upsertTaskRelayEntries(taskID, relayNodes)
 	if err != nil {
 		return nil, err
 	}
 	next := make([]convert.Node, 0, len(nodes))
 	for _, node := range nodes {
-		if node.Protocol != "vless" {
+		if !relayNodeEnabled(node, includeVLESS, includeTrojanWS) {
 			next = append(next, node)
 			continue
 		}
 		port, ok := ports[node.Name]
 		if !ok {
-			return nil, fmt.Errorf("vless relay port missing for node %q", node.Name)
+			return nil, fmt.Errorf("%s relay port missing for node %q", node.Protocol, node.Name)
 		}
 		next = append(next, convert.Node{
 			Name:     node.Name,
@@ -345,7 +372,7 @@ func (s *Service) configureTaskVLESSRelays(taskID int64, nodes []convert.Node, r
 			Params: map[string]string{
 				"username":       s.relayConfig.Username,
 				"password":       s.relayConfig.Password,
-				"relay_protocol": "vless",
+				"relay_protocol": node.Protocol,
 			},
 			Tags:   node.Tags,
 			Pinned: node.Pinned,
@@ -355,6 +382,13 @@ func (s *Service) configureTaskVLESSRelays(taskID int64, nodes []convert.Node, r
 		return nil, err
 	}
 	return next, nil
+}
+
+func relayNodeEnabled(node convert.Node, includeVLESS bool, includeTrojanWS bool) bool {
+	if includeVLESS && node.Protocol == "vless" {
+		return true
+	}
+	return includeTrojanWS && node.Protocol == "trojan" && node.Params["network"] == "ws"
 }
 
 func (s *Service) clearTaskVLESSRelays(taskID int64) error {
@@ -416,15 +450,15 @@ func (s *Service) upsertTaskRelayEntries(taskID int64, nodes []convert.Node) (ma
 	keep := make(map[string]bool, len(nodes))
 	ports := make(map[string]int, len(nodes))
 	for _, node := range nodes {
-		if node.Params["uuid"] == "" {
-			return nil, fmt.Errorf("vless node %q uuid is required", node.Name)
+		if err := validateRelayNode(node); err != nil {
+			return nil, err
 		}
 		keep[node.Name] = true
 		port := existing[node.Name]
 		if port == 0 || !relayPortInRange(s.relayConfig, port) || used[port] {
 			port = nextRelayPort(s.relayConfig, used)
 			if port == 0 {
-				return nil, fmt.Errorf("not enough VLESS relay ports: need %d, have %d", len(nodes), s.relayConfig.PortEnd-s.relayConfig.PortStart+1)
+				return nil, fmt.Errorf("not enough relay ports: need %d, have %d", len(nodes), s.relayConfig.PortEnd-s.relayConfig.PortStart+1)
 			}
 		}
 		used[port] = true
@@ -455,6 +489,20 @@ func (s *Service) upsertTaskRelayEntries(taskID int64, nodes []convert.Node) (ma
 		return nil, err
 	}
 	return ports, nil
+}
+
+func validateRelayNode(node convert.Node) error {
+	switch node.Protocol {
+	case "vless":
+		if node.Params["uuid"] == "" {
+			return fmt.Errorf("vless node %q uuid is required", node.Name)
+		}
+	case "trojan":
+		if node.Params["password"] == "" {
+			return fmt.Errorf("trojan node %q password is required", node.Name)
+		}
+	}
+	return nil
 }
 
 func nextRelayPort(cfg config.VLESSRelayConfig, used map[int]bool) int {
@@ -625,7 +673,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 			refresh_interval_seconds, merge_default_pinned_nodes, pinned_node_order_mode,
 			last_error_message,
 			include_global_rules, custom_rules_text, rule_merge_mode, final_rule_policy, custom_groups_text,
-			vless_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
+			vless_relay_mode, trojan_ws_relay_mode, managed_config_mode, managed_config_url_mode, managed_config_custom_url,
 			managed_config_interval_mode, managed_config_interval_seconds, managed_config_strict_mode,
 			COALESCE((SELECT token FROM subscription_tokens WHERE task_id = conversion_tasks.id ORDER BY id ASC LIMIT 1), '')
 		FROM conversion_tasks
@@ -634,7 +682,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 		&enabled, &task.RefreshIntervalSeconds, &mergeDefaults, &task.PinnedNodeOrderMode,
 		&task.LastErrorMessage,
 		&includeGlobalRules, &task.CustomRulesText, &task.RuleMergeMode, &task.FinalRulePolicy, &task.CustomGroupsText,
-		&task.VLESSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,
+		&task.VLESSRelayMode, &task.TrojanWSRelayMode, &task.ManagedConfigMode, &task.ManagedConfigURLMode, &task.ManagedConfigCustomURL,
 		&task.ManagedConfigIntervalMode, &task.ManagedConfigIntervalSeconds, &task.ManagedConfigStrictMode,
 		&task.SubscriptionToken,
 	)
@@ -646,6 +694,7 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 	}
 	task.FinalRulePolicy = strings.TrimSpace(task.FinalRulePolicy)
 	task.VLESSRelayMode = normalizeVLESSRelayMode(task.VLESSRelayMode)
+	task.TrojanWSRelayMode = normalizeTrojanWSRelayMode(task.TrojanWSRelayMode)
 	task.ManagedConfigMode = normalizeTriStateMode(task.ManagedConfigMode)
 	task.ManagedConfigURLMode = normalizeTaskManagedURLMode(task.ManagedConfigURLMode)
 	task.ManagedConfigCustomURL = strings.TrimSpace(task.ManagedConfigCustomURL)
@@ -658,6 +707,10 @@ func (s *Service) loadTask(taskID int64) (storage.ConversionTask, error) {
 }
 
 func normalizeVLESSRelayMode(mode string) string {
+	return normalizeTriStateMode(mode)
+}
+
+func normalizeTrojanWSRelayMode(mode string) string {
 	return normalizeTriStateMode(mode)
 }
 
