@@ -269,13 +269,14 @@ rules:
 		"skip-cert-verify=true",
 		"download-bandwidth=1000",
 		"upload-bandwidth=1000",
-		"port-hopping=\"20000-30000\"",
+		"port-hopping=20000-30000",
+		"salamander-password=OGQ0N2E4NzQ2YmE4MTBjMw==",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "skip_cert_verify") || strings.Contains(out, "obfs=salamander") || strings.Contains(out, "obfs-password") || strings.Contains(out, "ports=") {
+	if strings.Contains(out, "skip_cert_verify") || strings.Contains(out, "obfs=salamander") || strings.Contains(out, "obfs-password") || strings.Contains(out, "ports=") || strings.Contains(out, "obfs_password") {
 		t.Fatalf("output should not render Clash-only or unsupported params directly:\n%s", out)
 	}
 }

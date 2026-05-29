@@ -475,7 +475,12 @@ func renderNodeWithOptions(node Node, opts RenderOptions) (string, error) {
 			parts = append(parts, "upload-bandwidth="+up)
 		}
 		if ports := node.Params["ports"]; ports != "" {
-			parts = append(parts, "port-hopping="+quoteSurgeValue(ports))
+			parts = append(parts, "port-hopping="+ports)
+		}
+		if node.Params["obfs"] == "salamander" {
+			if password := node.Params["obfs_password"]; password != "" {
+				parts = append(parts, "salamander-password="+password)
+			}
 		}
 		return strings.Join(parts, ", "), nil
 	default:
@@ -490,16 +495,6 @@ func renderNodeWithOptions(node Node, opts RenderOptions) (string, error) {
 		}
 		return strings.Join(parts, ", "), nil
 	}
-}
-
-func quoteSurgeValue(value string) string {
-	if value == "" {
-		return `""`
-	}
-	if strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
-		return value
-	}
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func appendSharedSurgeParams(parts *[]string, node Node) {
